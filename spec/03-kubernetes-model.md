@@ -1,394 +1,272 @@
 # 03 — Kubernetes Model
 
-Hades is Kubernetes-native. Its runtime objects should be visible through `kubectl`, reconciled by controllers, and backed by normal cluster primitives.
+Hades is Kubernetes-native. The resources should be visible through `kubectl`, reconciled by controllers, and backed by normal cluster primitives.
 
-## Namespace Model
-
-```text
-wire-system / hades-system
-    Hades API server
-    Hades controllers
-    Hades scheduler
-    event store
-    dashboard service
-    cluster-wide CRDs
-
-project-* namespaces
-    AgentSessions
-    AgentRuns
-    BrainPods
-    HandsPods
-    Workspaces
-    project-specific policies
-```
-
-Example:
+## Namespaces
 
 ```text
 hades-system
-project-auth-redesign
-project-docs-audit
-project-research-cri3
+  hades-api
+  hades-controller-manager
+  hades-store
+  secret broker adapters
+  system agents
+  cluster-wide CRDs
+
+agent-wren / project-* / team-*
+  Agents
+  Sessions
+  Homes
+  Listeners
+  Schedules
+  Hands
+  Workspaces
+  CapabilityGrants
+```
+
+For a single resident Wren deployment:
+
+```text
+hades-system
+agent-wren
+```
+
+For larger teams:
+
+```text
+hades-system
+project-auth
+project-docs
+agent-wren
+agent-muse
 ```
 
 ## Core CRDs
 
+### Agent
+
+```yaml
+apiVersion: hades.dev/v1alpha1
+kind: Agent
+metadata:
+  name: wren
+  namespace: agent-wren
+spec:
+  classRef: resident-pi
+  homeRef: wren-home
+  defaultSession: default
+  desiredState: active
+  modelPolicy:
+    default: ollama-cloud/qwen
+  listeners:
+    - wren-discord
+  schedules:
+    - morning-ritual
+status:
+  phase: active
+  brainPod: brain-wren-6b8c
+  sessions:
+    - default
+```
+
 ### AgentClass
 
-Reusable template for a type of agent.
+Reusable template for an agent type.
 
 ```yaml
-apiVersion: hades.dev/v1alpha1
 kind: AgentClass
-metadata:
-  name: planner
 spec:
-  description: Plans implementation strategy and decomposes tasks.
-  brain:
-    image: ghcr.io/sigilmakes/hades-brain-pi:latest
-    modelPolicy:
-      default: anthropic/claude-sonnet-4-6
-      allowed:
-        - anthropic/claude-sonnet-4-6
-        - ollama/glm-5.2:cloud
-  instructionsRef:
-    configMap: planner-instructions
-  tools:
-    allowed:
-      - read
-      - grep
-      - write-proposal
-      - acp-send
-      - await-approval
-  handPolicy:
-    defaultMode: shared-readonly
-    writableRequiresApproval: true
-  resources:
-    brain:
-      cpu: "1"
-      memory: 2Gi
-```
-
-### AgentSession
-
-Durable identity of an agent. May or may not currently have a live brain pod.
-
-```yaml
-apiVersion: hades.dev/v1alpha1
-kind: AgentSession
-metadata:
-  name: planner-auth-001
-spec:
-  classRef: planner
-  project: auth-redesign
-  sessionLogRef: sess-auth-planner-001
-  workspaceRefs:
-    - repo-auth-main
-  desiredState: active
-status:
-  phase: awaiting
-  brainPod: brain-planner-auth-001-7c8f
-  hands:
-    - repo-auth-readonly
-  runRefs:
-    - run-plan-auth-flow
-  lastEventId: 128
-```
-
-### BrainPodBinding
-
-Binds an AgentSession to a live brain pod.
-
-```yaml
-apiVersion: hades.dev/v1alpha1
-kind: BrainPodBinding
-metadata:
-  name: planner-auth-001
-spec:
-  agentSessionRef: planner-auth-001
   brainImage: ghcr.io/sigilmakes/hades-brain-pi:latest
-  sessionLogRef: sess-auth-planner-001
+  systemPromptRef:
+    configMap: resident-wren-prompt
+  allowedTools:
+    - read
+    - write
+    - bash
+    - os.createSchedule
+    - os.spawnAgent
+  defaultHandsPolicy: home-sandbox
+```
+
+### Home
+
+```yaml
+kind: Home
+metadata:
+  name: wren-home
+spec:
+  volume:
+    size: 50Gi
+  layout:
+    create:
+      - vault
+      - bin
+      - cron.d
+      - projects
+      - skills
+status:
+  phase: ready
+  pvc: home-wren-pvc
+```
+
+### Session
+
+```yaml
+kind: Session
+metadata:
+  name: wren-default
+spec:
+  agentRef: wren
+  logRef: sess-wren-default
+status:
+  phase: idle
+  lastEventId: evt_000123
+```
+
+### BrainBinding
+
+```yaml
+kind: BrainBinding
+metadata:
+  name: wren-default
+spec:
+  agentRef: wren
+  sessionRef: wren-default
+  image: ghcr.io/sigilmakes/hades-brain-pi:latest
 status:
   phase: running
-  podName: brain-planner-auth-001-7c8f
-  startedAt: "2026-06-21T12:00:00Z"
+  podName: brain-wren-6b8c
 ```
 
-### HandsPod
-
-Represents a tool/sandbox environment.
+### Hands
 
 ```yaml
-apiVersion: hades.dev/v1alpha1
-kind: HandsPod
+kind: Hands
 metadata:
-  name: repo-auth-readonly
+  name: wren-home-shell
 spec:
-  type: repo-toolbox
-  sharing: shared
-  workspaceRef: repo-auth-main
-  writable: false
+  type: home-toolbox
+  mode: exclusive
+  homeRef: wren-home
   tools:
     - bash
     - read
-    - rg
-    - git-status
-    - test-readonly
+    - write
+    - edit
+    - git
+  isolation:
+    runtimeClassName: gvisor
 status:
   phase: ready
-  podName: hands-repo-auth-readonly-5d9b
-  attachedAgents:
-    - planner-auth-001
-    - explorer-auth-002
+  podName: hands-wren-home-shell-82cf
 ```
 
-### Workspace
+### Listener
 
 ```yaml
-apiVersion: hades.dev/v1alpha1
-kind: Workspace
+kind: Listener
 metadata:
-  name: repo-auth-main
+  name: wren-discord
 spec:
-  source:
-    git:
-      url: git@github.com:org/app.git
-      ref: main
-  mode: readonly
-  volume:
-    size: 20Gi
+  agentRef: wren
+  platform: discord
+  secretRef: wren-discord-token
+  routes:
+    - external: "1333841182794580112"
+      session: default
+  allowedUsers:
+    - sigil__
+    - mankymeson
 status:
-  phase: ready
-  revision: abc123
+  phase: connected
 ```
 
-Writable worktree:
+### Schedule
 
 ```yaml
-apiVersion: hades.dev/v1alpha1
-kind: Workspace
+kind: Schedule
 metadata:
-  name: wt-auth-coder-001
+  name: morning-ritual
 spec:
-  source:
-    workspaceRef: repo-auth-main
-  mode: writable-worktree
-  branch: hades/coder/auth-refresh
-  ownerAgentRef: coder-auth-001
-status:
-  phase: ready
-  baseRevision: abc123
-  headRevision: def456
+  agentRef: wren
+  cron: "0 7 * * *"
+  session: default
+  promptRef:
+    homePath: cron.d/morning-ritual.md
+  notify:
+    - listenerRef: wren-discord
+      target: "1333841182794580112"
 ```
 
-### AgentRun
-
-ACP-compatible run state.
+### Run
 
 ```yaml
-apiVersion: hades.dev/v1alpha1
-kind: AgentRun
+kind: Run
 metadata:
-  name: run-plan-auth-flow
+  name: run-20260623-001
 spec:
-  agentSessionRef: planner-auth-001
-  inputRef: event-42
+  agentRef: wren
+  sessionRef: wren-default
+  inputEventRef: evt_000124
   mode: stream
 status:
-  phase: awaiting
-  acpStatus: awaiting
-  awaitRequestRef: approval-17
-  outputRefs:
-    - event-88
+  phase: completed
 ```
 
-### Approval
+### CapabilityGrant
 
 ```yaml
-apiVersion: hades.dev/v1alpha1
-kind: Approval
+kind: CapabilityGrant
 metadata:
-  name: approval-17
+  name: wren-self-management
 spec:
-  requesterRef: agent/planner-auth-001
-  runRef: run-plan-auth-flow
-  prompt: Allow planner to modify the auth flow?
-  options:
-    - approve
-    - deny
-    - approve-with-constraints
-status:
-  phase: pending
+  subject:
+    kind: Agent
+    name: wren
+  capabilities:
+    - updateOwnHome
+    - createOwnSchedule
+    - createOwnTool
+    - spawnChildAgent
+  constraints:
+    namespaces:
+      onlyOwn: true
+    maxChildDepth: 2
 ```
 
-### Artifact
-
-```yaml
-apiVersion: hades.dev/v1alpha1
-kind: Artifact
-metadata:
-  name: auth-design-report
-spec:
-  sessionRef: planner-auth-001
-  contentType: text/markdown
-  uri: s3://hades-artifacts/project-auth/auth-design-report.md
-status:
-  phase: available
-```
-
-## Controller Loops
-
-### AgentSession Controller
+## Object Graph
 
 ```text
-watch AgentSession
-    if desiredState=active and no BrainPodBinding:
-        create BrainPodBinding
-    if desiredState=sleeping and brain exists:
-        checkpoint + terminate brain pod
-    if brain pod crashed:
-        create replacement and wake(sessionId)
-    update status from event store and pod health
+Agent/wren
+  ├─ Home/wren-home
+  ├─ Session/wren-default
+  │   └─ BrainBinding/wren-default -> Pod/brain-wren-*
+  ├─ Listener/wren-discord -> Pod/listener-discord-*
+  ├─ Schedule/morning-ritual
+  └─ Hands/wren-home-shell -> Pod/hands-wren-*
 ```
 
-### HandsPod Controller
+## Controllers
 
 ```text
-watch HandsPod
-    if workspace not ready:
-        wait
-    if pod missing and desired ready:
-        create pod with requested tools/workspace
-    if pod unhealthy:
-        mark degraded, optionally replace
-    if no attached agents and ttl expired:
-        terminate
+AgentController       desiredState -> BrainBinding
+BrainController       BrainBinding -> Pod lifecycle
+HomeController        Home -> PVC/layout/bootstrap
+HandsController       Hands -> sandbox/tool pod
+ListenerController    Listener -> bridge pod
+ScheduleController    Schedule -> timer -> run/message
+RunController         Run -> session events -> brain wake
+CapabilityController  grants -> policy cache/RBAC projections
+GarbageCollector      TTL cleanup with retention rules
 ```
 
-### Workspace Controller
+## Why Not tmux
+
+Tmux is an attach UX, not the substrate.
 
 ```text
-watch Workspace
-    if git source:
-        clone/fetch into PVC or ephemeral volume
-    if worktree source:
-        create branch/worktree from base workspace
-    if owner done and merge requested:
-        prepare patch/PR/merge proposal
+tmux gives terminals
+k8s gives namespaces, pods, services, RBAC, network policy, PVCs, controllers, health, scale
 ```
 
-### AgentRun Controller
-
-```text
-watch AgentRun
-    created -> ensure agent active
-    in-progress -> stream events
-    awaiting -> create/update Approval if needed
-    cancelling -> signal brain/hands
-    terminal -> finalize outputs/artifacts
-```
-
-### Scheduler
-
-The Hades scheduler decides:
-
-```text
-- which AgentClass to instantiate
-- which model/provider to use
-- which node pool should host brain pod
-- which hands pod can be shared
-- whether a writable isolated workspace is required
-- whether a browser/MCP/GPU/special runtime is needed
-- budget/resource limits
-- locality to workspace/cache
-```
-
-Scheduling flow:
-
-```text
-AgentRun requested
-      │
-      v
-┌──────────────────┐
-│ Hades Scheduler  │
-└───────┬──────────┘
-        │
-        ├─ validate policy
-        ├─ select AgentClass
-        ├─ select model/provider
-        ├─ select namespace
-        ├─ create/wake AgentSession
-        ├─ create BrainPodBinding
-        ├─ bind existing HandsPod or create new one
-        ├─ bind Workspace
-        └─ emit run.created
-```
-
-## Kubernetes Object Graph
-
-```text
-AgentClass/planner
-       │
-       │ instantiates
-       v
-AgentSession/planner-auth-001 ───────┐
-       │                              │
-       │ has live brain                │ uses
-       v                              v
-BrainPodBinding/planner-auth-001   HandsPod/repo-auth-readonly
-       │                              │
-       │ creates                       │ mounts
-       v                              v
-Pod/brain-planner-7c8f             Workspace/repo-auth-main
-       │
-       │ owns runs
-       v
-AgentRun/run-plan-auth-flow
-       │
-       │ may await
-       v
-Approval/approval-17
-```
-
-## Local Development Cluster
-
-The smallest deployment should still use Kubernetes.
-
-```text
-laptop
-  └─ k3s or kind
-       ├─ hades-system
-       │   ├─ hades-api
-       │   ├─ hades-controller
-       │   ├─ postgres or sqlite-pvc prototype
-       │   └─ dashboard service
-       └─ project-default
-           ├─ brain pods
-           ├─ hands pods
-           └─ workspace PVCs
-```
-
-## Why Not tmux as the Substrate?
-
-Tmux remains valuable as an attach mechanism and local terminal UX, but not as the orchestrator.
-
-```text
-tmux gives:
-    terminal multiplexing
-    human attach
-    simple process persistence
-
-kubernetes gives:
-    scheduling
-    health checks
-    restart policy
-    namespaces
-    resource limits
-    RBAC
-    network policy
-    declarative state
-    controllers
-    portable scale-out
-```
-
-Hades can expose tmux-like UX on top of Kubernetes pod exec/PTY streams.
+Hades can expose tmux-like attach for brain/hands pods through Kubernetes exec/PTY streams.
