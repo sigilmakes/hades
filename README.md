@@ -18,7 +18,29 @@ Controller   = kernel daemon
 SystemAgent  = privileged userland process
 ```
 
-Core invariants:
+## Current Prototype
+
+This repo now contains a dependency-light Node prototype that exercises the full v0 loop locally while keeping Kubernetes resources as the deployable shape.
+
+```bash
+npm install
+npm test
+npm run demo
+```
+
+Useful commands:
+
+```bash
+HADES_DATA_DIR=.hades node src/cli.js init
+HADES_DATA_DIR=.hades node src/cli.js message wren "!write vault/hello.md <<<hello"
+HADES_DATA_DIR=.hades node src/cli.js message wren "!read vault/hello.md"
+HADES_DATA_DIR=.hades node src/cli.js events wren-default
+HADES_DATA_DIR=.hades node src/cli.js serve 7347
+```
+
+Set `HADES_USE_PI_SDK=1` to run the brain through the pi SDK adapter. Default mode is deterministic so tests and controller flows do not require model credentials.
+
+## Core invariants
 
 - Kubernetes is the runtime substrate from the start.
 - Hades is a control plane, not a pi extension and not a single tool call.

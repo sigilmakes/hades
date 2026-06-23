@@ -1,0 +1,20 @@
+{
+  "name": "@sigilmakes/hades",
+  "version": "0.1.0",
+  "description": "Kubernetes-native agent operating system prototype",
+  "type": "module",
+  "bin": {
+    "hades": "src/cli.js"
+  },
+  "scripts": {
+    "test": "node --test",
+    "demo": "node src/cli.js demo",
+    "serve": "node src/cli.js serve"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.79.10"
+  }
+}

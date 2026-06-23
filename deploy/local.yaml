@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hades-system
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agent-wren
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: hades-system
+  name: hades-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hades-api
+  template:
+    metadata:
+      labels:
+        app: hades-api
+    spec:
+      containers:
+        - name: hades-api
+          image: ghcr.io/sigilmakes/hades:dev
+          command: ["node", "src/cli.js", "serve", "7347"]
+          ports:
+            - containerPort: 7347
+          env:
+            - name: HADES_DATA_DIR
+              value: /var/lib/hades
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/hades
+      volumes:
+        - name: data
+          emptyDir: {}

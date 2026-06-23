@@ -1,0 +1,220 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: agents.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: agents
+    singular: agent
+    kind: Agent
+    shortNames: [ag]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: agentclasses.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: agentclasses
+    singular: agentclass
+    kind: AgentClass
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: homes.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: homes
+    singular: home
+    kind: Home
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: sessions.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: sessions
+    singular: session
+    kind: Session
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: brainbindings.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: brainbindings
+    singular: brainbinding
+    kind: BrainBinding
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: hands.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: hands
+    singular: hands
+    kind: Hands
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: listeners.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: listeners
+    singular: listener
+    kind: Listener
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: schedules.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: schedules
+    singular: schedule
+    kind: Schedule
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: runs.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: runs
+    singular: run
+    kind: Run
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: approvals.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: approvals
+    singular: approval
+    kind: Approval
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: capabilitygrants.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: capabilitygrants
+    singular: capabilitygrant
+    kind: CapabilityGrant
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true

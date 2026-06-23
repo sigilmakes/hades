@@ -1,0 +1,39 @@
+{
+  "apiVersion": "hades.dev/v1alpha1",
+  "kind": "Agent",
+  "metadata": { "namespace": "agent-wren", "name": "wren" },
+  "spec": {
+    "displayName": "Wren",
+    "classRef": "resident-pi",
+    "homeRef": "wren-home",
+    "defaultSession": "wren-default",
+    "desiredState": "active"
+  }
+}
+---
+{
+  "apiVersion": "hades.dev/v1alpha1",
+  "kind": "Home",
+  "metadata": { "namespace": "agent-wren", "name": "wren-home" },
+  "spec": {
+    "layout": { "create": ["vault", "bin", "cron.d", "projects", "skills", "inbox", "outbox"] }
+  }
+}
+---
+{
+  "apiVersion": "hades.dev/v1alpha1",
+  "kind": "Listener",
+  "metadata": { "namespace": "agent-wren", "name": "wren-cli" },
+  "spec": { "agentRef": "wren", "platform": "cli", "routes": "default" }
+}
+---
+{
+  "apiVersion": "hades.dev/v1alpha1",
+  "kind": "CapabilityGrant",
+  "metadata": { "namespace": "agent-wren", "name": "wren-self-management" },
+  "spec": {
+    "subject": { "kind": "Agent", "name": "wren" },
+    "capabilities": ["updateOwnHome", "createOwnTool", "createOwnSchedule", "spawnChildAgent"],
+    "constraints": { "namespace": "own" }
+  }
+}
