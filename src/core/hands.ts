@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import type { EventStore } from "./events.js";
@@ -29,6 +29,7 @@ export class HandsExecutor {
     }
 
     resolve(userPath = "."): string {
+        if (path.isAbsolute(userPath)) throw new Error(`Absolute paths are not allowed in local hands: ${userPath}`);
         const root = path.resolve(this.homeRoot);
         const resolved = path.resolve(root, userPath);
         const relative = path.relative(root, resolved);
@@ -99,9 +100,16 @@ export function parseConfinedCommand(command: string): string[] {
 }
 
 async function runConfined(argv: string[], cwd: string, homeRoot: string, timeoutMs: number): Promise<ToolResult> {
-    const executable = path.resolve(homeRoot, argv[0]);
-    const relativeExecutable = path.relative(path.resolve(homeRoot), executable);
+    const root = path.resolve(homeRoot);
+    const executable = path.resolve(root, argv[0]);
+    const relativeExecutable = path.relative(root, executable);
     if (relativeExecutable.startsWith("..") || path.isAbsolute(relativeExecutable)) throw new Error(`Executable escapes home: ${argv[0]}`);
+    const stat = await lstat(executable);
+    if (stat.isSymbolicLink()) throw new Error(`Executable symlinks are not allowed in local confined hands: ${argv[0]}`);
+    const realExecutable = await realpath(executable);
+    const relativeRealExecutable = path.relative(root, realExecutable);
+    if (relativeRealExecutable.startsWith("..") || path.isAbsolute(relativeRealExecutable)) throw new Error(`Executable realpath escapes home: ${argv[0]}`);
+    await rejectDeniedShebang(executable);
     await access(executable);
     return new Promise((resolve) => {
         const child = spawn(executable, argv.slice(1), {
@@ -130,4 +138,17 @@ async function runConfined(argv: string[], cwd: string, homeRoot: string, timeou
             finish({ code: code ?? 137, signal, stdout, stderr });
         });
     });
+}
+
+async function rejectDeniedShebang(executable: string): Promise<void> {
+    const prefix = await readFile(executable, { encoding: "utf8" }).catch(() => "");
+    const firstLine = prefix.split("\n", 1)[0] ?? "";
+    if (!firstLine.startsWith("#!")) return;
+    const parts = firstLine.slice(2).trim().split(/\s+/).filter(Boolean);
+    const interpreter = path.basename(parts[0] ?? "");
+    const envTarget = interpreter === "env" ? parts.slice(1).find((part) => !part.startsWith("-")) : undefined;
+    const deniedName = path.basename(envTarget ?? interpreter);
+    if (DENY_EXECUTABLES.has(deniedName)) {
+        throw new Error(`Shebang interpreter ${deniedName} is not allowed in local confined hands`);
+    }
 }

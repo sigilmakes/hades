@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { access, mkdtemp, readFile } from "node:fs/promises";
+import { access, chmod, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -194,6 +194,27 @@ test("cli help does not initialize state", async () => {
     const result = spawnSync(process.execPath, [path.resolve("dist/cli.js"), "--help"], { cwd, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
     await assert.rejects(access(path.join(cwd, ".hades")), /ENOENT/);
+});
+
+test("hands reject absolute paths even when inside home", async () => {
+    const { runtime } = await runtimeFixture();
+    const home = runtime.state.findByName("Home", HOME, NS);
+    const hands = new HandsExecutor({ homeRoot: home.status.path });
+    await assert.rejects(hands.read(path.join(home.status.path, "vault/note.md")), /Absolute paths are not allowed/);
+    await assert.rejects(hands.write(path.join(home.status.path, "vault/note.md"), "bad"), /Absolute paths are not allowed/);
+    await assert.rejects(hands.bash("bin/tool", home.status.path), /Absolute paths are not allowed/);
+});
+
+test("hands reject executable symlinks and denied shebangs", async () => {
+    const { runtime } = await runtimeFixture();
+    const home = runtime.state.findByName("Home", HOME, NS);
+    const hands = new HandsExecutor({ homeRoot: home.status.path });
+    await symlink("/bin/sh", path.join(home.status.path, "bin/shlink"));
+    await assert.rejects(hands.bash("bin/shlink"), /symlinks are not allowed/);
+    const shellScript = path.join(home.status.path, "bin/script");
+    await writeFile(shellScript, "#!/usr/bin/env bash\necho nope\n", "utf8");
+    await chmod(shellScript, 0o755);
+    await assert.rejects(hands.bash("bin/script"), /Shebang interpreter bash is not allowed/);
 });
 
 test("hands prevent path escape", async () => {

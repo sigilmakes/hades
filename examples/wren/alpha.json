@@ -45,9 +45,8 @@
         "content": "Take a short recess: pick one small harmless creative or maintenance task in your own home and report what changed.\n"
       },
       {
-        "path": "bin/wren-brief",
-        "mode": "0755",
-        "content": "#!/usr/bin/env bash\nset -euo pipefail\nfind vault -maxdepth 3 -type f | sort | sed 's#^#- #' | head -50\n"
+        "path": "bin/wren-brief.md",
+        "content": "# wren-brief\n\nSource sketch for a future Wren-owned briefing tool. In the local prototype, executable hands are confined and shell interpreters are rejected; Wren can still edit this into a permitted tool once a stronger Kubernetes sandbox backs execution.\n"
       }
     ]
   }
