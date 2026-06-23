@@ -5,7 +5,8 @@ import { HadesRuntime, loadManifest } from "./core/controllers.js";
 import { dataDirFromEnv } from "./core/state.js";
 import { createServer } from "./api/server.js";
 
-const [command = "help", ...args] = process.argv.slice(2);
+const [rawCommand = "help", ...args] = process.argv.slice(2);
+const command = rawCommand === "--help" || rawCommand === "-h" ? "help" : rawCommand;
 const dataDir = dataDirFromEnv();
 const runtime = await new HadesRuntime(dataDir).init();
 
