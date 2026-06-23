@@ -12,10 +12,10 @@ const runtime = await new HadesRuntime(dataDir).init();
 try {
     if (command === "help") help();
     else if (command === "init") await initEmpty();
-    else if (command === "apply") await apply(args[0]);
+    else if (command === "apply" || command === "up") await apply(args[0]);
     else if (command === "reconcile") await reconcile();
-    else if (command === "message") await message(args);
-    else if (command === "events") await events(args[0]);
+    else if (command === "message" || command === "say") await message(args);
+    else if (command === "events" || command === "tail") await events(args[0]);
     else if (command === "state") console.log(JSON.stringify(await runtime.snapshot(), null, 4));
     else if (command === "serve") await serve(args);
     else if (command === "demo") await demo();
@@ -31,13 +31,14 @@ function help() {
 
 Commands:
   init                         initialize an empty Hades data directory
-  apply <file>                 apply JSON/YAML-subset resource documents
+  apply|up <file>              apply JSON/YAML-subset resource documents
   reconcile                    run controllers once
-  message [opts] <agent> <txt> send a prompt to an agent
-  events [session]             print durable events
+  say [opts] <agent> <txt>     send a prompt to an agent
+  tail [session]               print durable events
   state                        print resource state
   serve [port]                 start the Hades API server
   demo [manifest] [agent]      run a local loop using a manifest
+                               default uses offline deterministic demo manifest
 
 Message options:
   --namespace <namespace>      namespace for an unqualified agent name
@@ -45,7 +46,7 @@ Message options:
 
 Environment:
   HADES_DATA_DIR               state directory (default ./.hades)
-  HADES_USE_PI_SDK=1           run brain through pi SDK instead of deterministic mode
+  HADES_BRAIN_MODE             pi-sdk (default) or deterministic (offline/tests)
 `);
 }
 

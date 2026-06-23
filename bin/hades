@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ ! -f "$repo_dir/dist/cli.js" || "$repo_dir/src/cli.ts" -nt "$repo_dir/dist/cli.js" ]]; then
+    (cd "$repo_dir" && npm run build --silent)
+fi
+exec node "$repo_dir/dist/cli.js" "$@"

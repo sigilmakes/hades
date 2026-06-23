@@ -10,12 +10,14 @@
     "build": "tsc",
     "test": "npm run build && node --test",
     "demo": "npm run build && node dist/cli.js demo",
-    "serve": "npm run build && node dist/cli.js serve"
+    "serve": "npm run build && node dist/cli.js serve",
+    "hades": "npm run build --silent && node dist/cli.js"
   },
   "engines": {
     "node": ">=24"
   },
   "dependencies": {
+    "@earendil-works/pi-ai": "^0.79.10",
     "@earendil-works/pi-coding-agent": "^0.79.10"
   },
   "devDependencies": {

@@ -20,27 +20,36 @@ SystemAgent  = privileged userland process
 
 ## Current Prototype
 
-This repo now contains a dependency-light Node prototype that exercises the full v0 loop locally while keeping Kubernetes resources as the deployable shape.
+The repo contains a TypeScript control-plane prototype that exercises the v0 AgentOS loop locally while keeping Kubernetes resources as the deployable shape.
 
 ```bash
 npm install
 npm test
-npm run demo
+./bin/hades demo
 ```
 
-Useful commands:
+For day-to-day local use from a checkout:
 
 ```bash
-npm run build
-HADES_DATA_DIR=.hades node dist/cli.js init
-HADES_DATA_DIR=.hades node dist/cli.js apply examples/generic/alpha.json
-HADES_DATA_DIR=.hades node dist/cli.js message agent-demo/demo "!write vault/hello.md <<<hello"
-HADES_DATA_DIR=.hades node dist/cli.js message agent-demo/demo "!read vault/hello.md"
-HADES_DATA_DIR=.hades node dist/cli.js events demo-default
-HADES_DATA_DIR=.hades node dist/cli.js serve 7347
+./bin/hades init
+./bin/hades up examples/generic/alpha.json
+./bin/hades say agent-demo/demo "!write vault/hello.md <<<hello"
+./bin/hades say agent-demo/demo "!read vault/hello.md"
+./bin/hades tail demo-default
+./bin/hades serve
 ```
 
-Set `HADES_USE_PI_SDK=1` to run the brain through the pi SDK adapter. Default mode is deterministic so tests and controller flows do not require model credentials.
+`./bin/hades` builds `dist/` if needed. After packaging or `npm link`, use `hades` directly.
+
+## Brain Mode
+
+The default brain mode is **pi SDK**. The SDK path registers Hades tools (`hades_read`, `hades_write`, `hades_bash`) that route through Hands; it does not expose pi's local filesystem tools to the brain.
+
+The generic demo pins `spec.brain.mode: deterministic` so tests and smoke demos run offline without model credentials. You can also force offline mode with:
+
+```bash
+HADES_BRAIN_MODE=deterministic ./bin/hades say agent-demo/demo "hello"
+```
 
 Wren is an example manifest under `examples/wren/`; the default demo uses `examples/generic/`. Core runtime code does not default to Wren or `agent-wren`.
 

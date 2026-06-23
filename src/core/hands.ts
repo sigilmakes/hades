@@ -79,21 +79,30 @@ export function sanitizedEnv(): NodeJS.ProcessEnv {
 
 function runBash(command: string, cwd: string, timeoutMs: number): Promise<ToolResult> {
     return new Promise((resolve) => {
-        const child = spawn("/bin/bash", ["-lc", command], {
+        const child = spawn("bash", ["-lc", command], {
             cwd,
             env: sanitizedEnv(),
             stdio: ["ignore", "pipe", "pipe"],
         });
         let stdout = "";
         let stderr = "";
+        let settled = false;
+        const finish = (result: ToolResult) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            resolve(result);
+        };
         const timeout = setTimeout(() => {
             child.kill("SIGKILL");
         }, timeoutMs);
         child.stdout.on("data", (data) => { stdout += data.toString(); });
         child.stderr.on("data", (data) => { stderr += data.toString(); });
+        child.on("error", (error) => {
+            finish({ code: 127, signal: null, stdout, stderr: String(error.message) });
+        });
         child.on("close", (code, signal) => {
-            clearTimeout(timeout);
-            resolve({ code: code ?? 137, signal, stdout, stderr });
+            finish({ code: code ?? 137, signal, stdout, stderr });
         });
     });
 }

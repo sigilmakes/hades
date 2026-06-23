@@ -1,4 +1,4 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { EventStore } from "./events.js";
 import { StateStore, type HadesState } from "./state.js";
@@ -54,6 +54,15 @@ export class HadesRuntime {
             const homePath = home.spec?.path ?? path.join(this.dataDir, "homes", namespace, nameOf(home));
             for (const dir of home.spec?.layout?.create ?? ["vault", "bin", "cron.d", "projects", "skills", "inbox", "outbox"]) {
                 await mkdir(path.join(homePath, dir), { recursive: true });
+            }
+            for (const file of home.spec?.files ?? []) {
+                const relativePath = String(file.path ?? "");
+                if (!relativePath) throw new Error(`Home ${nameOf(home)} has a bootstrap file without path`);
+                const target = safeHomePath(homePath, relativePath);
+                await mkdir(path.dirname(target), { recursive: true });
+                if (!file.overwrite && await exists(target)) continue;
+                await writeFile(target, String(file.content ?? ""), "utf8");
+                if (file.mode) await chmod(target, Number.parseInt(String(file.mode), 8));
             }
             home.status = { ...(home.status ?? {}), phase: "ready", path: homePath };
             await this.events.append("system", "home.ready", { home: nameOf(home), path: homePath });
@@ -251,6 +260,21 @@ function parseScalar(value: string): string | number | boolean {
     if (value === "false") return false;
     if (/^-?\d+$/.test(value)) return Number(value);
     return value.replace(/^["']|["']$/g, "");
+}
+
+async function exists(file: string): Promise<boolean> {
+    try {
+        await access(file);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function safeHomePath(homePath: string, relativePath: string): string {
+    const target = path.resolve(homePath, relativePath);
+    if (!target.startsWith(path.resolve(homePath))) throw new Error(`Home bootstrap file escapes home: ${relativePath}`);
+    return target;
 }
 
 function nameOf(resource: HadesResource): string {

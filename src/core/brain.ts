@@ -23,23 +23,71 @@ export class BrainRuntime {
 
     async run(agent: HadesResource, session: HadesResource, prompt: string): Promise<string> {
         const agentName = requiredName(agent);
-        await this.events.append(requiredName(session), "brain.woke", {
-            agent: agentName,
-            mode: process.env.HADES_USE_PI_SDK === "1" ? "pi-sdk" : "deterministic",
-        });
+        const mode = this.brainMode(agent);
+        await this.events.append(requiredName(session), "brain.woke", { agent: agentName, mode });
 
-        if (process.env.HADES_USE_PI_SDK === "1") {
-            return this.runPiSdk(agent, session, prompt);
-        }
-        return this.runDeterministic(agent, session, prompt);
+        if (mode === "deterministic") return this.runDeterministic(agent, session, prompt);
+        return this.runPiSdk(agent, session, prompt);
+    }
+
+    brainMode(agent: HadesResource): "pi-sdk" | "deterministic" {
+        const configured = process.env.HADES_BRAIN_MODE ?? agent.spec?.brain?.mode;
+        if (!configured) return "pi-sdk";
+        if (configured === "pi-sdk" || configured === "deterministic") return configured;
+        throw new Error(`Unsupported brain mode ${configured}`);
     }
 
     async runPiSdk(agent: HadesResource, session: HadesResource, prompt: string): Promise<string> {
-        const { createAgentSession, SessionManager } = await import("@earendil-works/pi-coding-agent");
+        const [{ Type }, pi] = await Promise.all([
+            import("@earendil-works/pi-ai"),
+            import("@earendil-works/pi-coding-agent"),
+        ]);
+        const { createAgentSession, DefaultResourceLoader, defineTool, getAgentDir, SessionManager } = pi;
         const homeRoot = this.homeRoot(agent);
+        const hands = new HandsExecutor({ homeRoot, events: this.events, sessionId: requiredName(session) });
+        const resourceLoader = new DefaultResourceLoader({
+            cwd: homeRoot,
+            agentDir: getAgentDir(),
+            extensionFactories: [
+                (api: any) => {
+                    api.registerTool(defineTool({
+                        name: "hades_read",
+                        label: "Hades Read",
+                        description: "Read a file from the agent Home through Hades Hands.",
+                        parameters: Type.Object({ path: Type.String() }),
+                        execute: async (_id: string, params: { path: string }) => ({
+                            content: [{ type: "text", text: await hands.read(params.path) }],
+                            details: { path: params.path },
+                        }),
+                    }));
+                    api.registerTool(defineTool({
+                        name: "hades_write",
+                        label: "Hades Write",
+                        description: "Write a file in the agent Home through Hades Hands.",
+                        parameters: Type.Object({ path: Type.String(), content: Type.String() }),
+                        execute: async (_id: string, params: { path: string; content: string }) => {
+                            const result = await hands.write(params.path, params.content);
+                            return { content: [{ type: "text", text: `wrote ${result.path} (${result.bytes} bytes)` }], details: result };
+                        },
+                    }));
+                    api.registerTool(defineTool({
+                        name: "hades_bash",
+                        label: "Hades Bash",
+                        description: "Run a shell command in the agent Home through Hades Hands.",
+                        parameters: Type.Object({ command: Type.String(), cwd: Type.Optional(Type.String()) }),
+                        execute: async (_id: string, params: { command: string; cwd?: string }) => {
+                            const result = await hands.bash(params.command, params.cwd ?? ".");
+                            return { content: [{ type: "text", text: result.stdout || result.stderr || `exit ${result.code}` }], details: result };
+                        },
+                    }));
+                },
+            ],
+        });
+        await resourceLoader.reload();
         const { session: piSession } = await createAgentSession({
             cwd: homeRoot,
-            tools: ["read", "bash"],
+            resourceLoader,
+            tools: ["hades_read", "hades_write", "hades_bash"],
             sessionManager: SessionManager.inMemory(homeRoot),
         });
         let text = "";

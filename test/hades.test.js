@@ -16,7 +16,7 @@ async function runtimeFixture() {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
     const runtime = await new HadesRuntime(dir).init();
     await runtime.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: { layout: { create: ["vault", "bin", "cron.d"] } } });
-    await runtime.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { displayName: "Raven", homeRef: HOME, defaultSession: SESSION, desiredState: "active" } });
+    await runtime.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { displayName: "Raven", homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "deterministic" } } });
     await runtime.apply({ kind: "Listener", metadata: { namespace: NS, name: "raven-cli" }, spec: { agentRef: AGENT, platform: "cli" } });
     await runtime.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "self" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["createOwnSchedule"], constraints: { namespace: "own" } } });
     await runtime.reconcile();
@@ -54,6 +54,25 @@ test("capability denial is explicit", async () => {
         runtime.createSchedule({ kind: "Agent", name: "intruder", namespace: NS }, { name: "bad" }),
         /Capability denied/,
     );
+});
+
+test("home controller bootstraps generic userland files", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
+    const runtime = await new HadesRuntime(dir).init();
+    await runtime.apply({
+        kind: "Home",
+        metadata: { namespace: "agent-generic", name: "generic-home" },
+        spec: {
+            layout: { create: ["vault", "bin"] },
+            files: [
+                { path: "vault/readme.md", content: "hello" },
+                { path: "bin/brief", mode: "0755", content: "#!/usr/bin/env bash\necho ok\n" },
+            ],
+        },
+    });
+    await runtime.reconcile();
+    const home = runtime.state.findByName("Home", "generic-home", "agent-generic");
+    assert.equal(await readFile(path.join(home.status.path, "vault/readme.md"), "utf8"), "hello");
 });
 
 test("hands env does not expose secret-like variables", () => {

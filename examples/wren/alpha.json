@@ -1,5 +1,16 @@
 {
   "apiVersion": "hades.dev/v1alpha1",
+  "kind": "AgentClass",
+  "metadata": { "namespace": "agent-wren", "name": "resident-pi" },
+  "spec": {
+    "brainImage": "ghcr.io/sigilmakes/hades-brain-pi:dev",
+    "allowedTools": ["read", "write", "bash", "os.createSchedule", "os.spawnAgent"],
+    "defaultHandsPolicy": "home-sandbox"
+  }
+}
+---
+{
+  "apiVersion": "hades.dev/v1alpha1",
   "kind": "Agent",
   "metadata": { "namespace": "agent-wren", "name": "wren" },
   "spec": {
@@ -7,7 +18,10 @@
     "classRef": "resident-pi",
     "homeRef": "wren-home",
     "defaultSession": "wren-default",
-    "desiredState": "active"
+    "desiredState": "active",
+    "modelPolicy": {
+      "default": "ollama-cloud/qwen3-coder"
+    }
   }
 }
 ---
@@ -16,7 +30,26 @@
   "kind": "Home",
   "metadata": { "namespace": "agent-wren", "name": "wren-home" },
   "spec": {
-    "layout": { "create": ["vault", "bin", "cron.d", "projects", "skills", "inbox", "outbox"] }
+    "layout": { "create": ["vault", "bin", "cron.d", "projects", "skills", "inbox", "outbox"] },
+    "files": [
+      {
+        "path": "vault/00-wren/README.md",
+        "content": "# Wren\n\nThis is Wren's Hades userland seed. The kernel provides Agent/Home/Session/Brain/Hands/Listener/Schedule primitives; Wren owns the content here.\n"
+      },
+      {
+        "path": "cron.d/morning-ritual.md",
+        "content": "Good morning. Orient from the session log and vault, check schedules, and say hello. If anything looks broken, explain it plainly.\n"
+      },
+      {
+        "path": "cron.d/recess.md",
+        "content": "Take a short recess: pick one small harmless creative or maintenance task in your own home and report what changed.\n"
+      },
+      {
+        "path": "bin/wren-brief",
+        "mode": "0755",
+        "content": "#!/usr/bin/env bash\nset -euo pipefail\nfind vault -maxdepth 3 -type f | sort | sed 's#^#- #' | head -50\n"
+      }
+    ]
   }
 }
 ---
@@ -29,11 +62,53 @@
 ---
 {
   "apiVersion": "hades.dev/v1alpha1",
+  "kind": "Listener",
+  "metadata": { "namespace": "agent-wren", "name": "wren-discord" },
+  "spec": {
+    "agentRef": "wren",
+    "platform": "discord",
+    "secretRef": "wren-discord-token",
+    "routes": "default"
+  }
+}
+---
+{
+  "apiVersion": "hades.dev/v1alpha1",
+  "kind": "Schedule",
+  "metadata": { "namespace": "agent-wren", "name": "morning-ritual" },
+  "spec": {
+    "agentRef": "wren",
+    "type": "manual",
+    "schedule": "0 7 * * *",
+    "session": "wren-default",
+    "promptRef": { "homePath": "cron.d/morning-ritual.md" },
+    "prompt": "Good morning. Orient from the session log and vault, check schedules, and say hello."
+  },
+  "status": { "phase": "pending" }
+}
+---
+{
+  "apiVersion": "hades.dev/v1alpha1",
+  "kind": "Schedule",
+  "metadata": { "namespace": "agent-wren", "name": "recess" },
+  "spec": {
+    "agentRef": "wren",
+    "type": "manual",
+    "schedule": "45 10,14,18 * * *",
+    "session": "wren-default",
+    "promptRef": { "homePath": "cron.d/recess.md" },
+    "prompt": "Take a short recess in your own home and report what changed."
+  },
+  "status": { "phase": "pending" }
+}
+---
+{
+  "apiVersion": "hades.dev/v1alpha1",
   "kind": "CapabilityGrant",
   "metadata": { "namespace": "agent-wren", "name": "wren-self-management" },
   "spec": {
     "subject": { "kind": "Agent", "name": "wren" },
     "capabilities": ["updateOwnHome", "createOwnTool", "createOwnSchedule", "spawnChildAgent"],
-    "constraints": { "namespace": "own" }
+    "constraints": { "namespace": "own", "maxChildDepth": 2 }
   }
 }
