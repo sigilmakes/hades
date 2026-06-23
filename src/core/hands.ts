@@ -1,44 +1,58 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
+import type { EventStore } from "./events.js";
+import type { ToolResult } from "./types.js";
 
 const DENY_ENV = [/KEY/i, /TOKEN/i, /SECRET/i, /PASSWORD/i, /AUTH/i];
 
+type HandsOptions = {
+    homeRoot: string;
+    events?: EventStore;
+    sessionId?: string;
+    timeoutMs?: number;
+};
+
 export class HandsExecutor {
-    constructor({ homeRoot, events, sessionId, timeoutMs = 15000 }) {
+    homeRoot: string;
+    events?: EventStore;
+    sessionId?: string;
+    timeoutMs: number;
+
+    constructor({ homeRoot, events, sessionId, timeoutMs = 15000 }: HandsOptions) {
         this.homeRoot = path.resolve(homeRoot);
         this.events = events;
         this.sessionId = sessionId;
         this.timeoutMs = timeoutMs;
     }
 
-    resolve(userPath = ".") {
+    resolve(userPath = "."): string {
         const resolved = path.resolve(this.homeRoot, userPath);
         if (!resolved.startsWith(this.homeRoot)) throw new Error(`Path escapes home: ${userPath}`);
         return resolved;
     }
 
-    async read(userPath) {
-        await this.events?.append(this.sessionId, "tool.requested", { tool: "read", path: userPath });
+    async read(userPath: string): Promise<string> {
+        await this.emit("tool.requested", { tool: "read", path: userPath });
         const content = await readFile(this.resolve(userPath), "utf8");
-        await this.events?.append(this.sessionId, "tool.completed", { tool: "read", path: userPath, bytes: content.length });
+        await this.emit("tool.completed", { tool: "read", path: userPath, bytes: content.length });
         return content;
     }
 
-    async write(userPath, content) {
-        await this.events?.append(this.sessionId, "tool.requested", { tool: "write", path: userPath });
+    async write(userPath: string, content: string): Promise<{ path: string; bytes: number }> {
+        await this.emit("tool.requested", { tool: "write", path: userPath });
         const target = this.resolve(userPath);
         await mkdir(path.dirname(target), { recursive: true });
         await writeFile(target, content, "utf8");
-        await this.events?.append(this.sessionId, "home.file.written", { path: userPath, bytes: content.length });
-        await this.events?.append(this.sessionId, "tool.completed", { tool: "write", path: userPath });
+        await this.emit("home.file.written", { path: userPath, bytes: content.length });
+        await this.emit("tool.completed", { tool: "write", path: userPath });
         return { path: userPath, bytes: content.length };
     }
 
-    async bash(command, cwd = ".") {
-        await this.events?.append(this.sessionId, "tool.requested", { tool: "bash", command });
+    async bash(command: string, cwd = "."): Promise<ToolResult> {
+        await this.emit("tool.requested", { tool: "bash", command });
         const result = await runBash(command, this.resolve(cwd), this.timeoutMs);
-        await this.events?.append(this.sessionId, result.code === 0 ? "tool.completed" : "tool.failed", {
+        await this.emit(result.code === 0 ? "tool.completed" : "tool.failed", {
             tool: "bash",
             command,
             code: result.code,
@@ -47,10 +61,14 @@ export class HandsExecutor {
         });
         return result;
     }
+
+    private async emit(type: string, payload: Record<string, any>): Promise<void> {
+        if (this.events && this.sessionId) await this.events.append(this.sessionId, type, payload);
+    }
 }
 
-export function sanitizedEnv() {
-    const env = {};
+export function sanitizedEnv(): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = {};
     for (const [key, value] of Object.entries(process.env)) {
         if (DENY_ENV.some((pattern) => pattern.test(key))) continue;
         env[key] = value;
@@ -59,7 +77,7 @@ export function sanitizedEnv() {
     return env;
 }
 
-function runBash(command, cwd, timeoutMs) {
+function runBash(command: string, cwd: string, timeoutMs: number): Promise<ToolResult> {
     return new Promise((resolve) => {
         const child = spawn("/bin/bash", ["-lc", command], {
             cwd,

@@ -1,17 +1,29 @@
 import { mkdir, readFile, appendFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
+export type HadesEvent = {
+    id: string;
+    sessionId: string;
+    type: string;
+    createdAt: string;
+    payload: Record<string, any>;
+    [key: string]: any;
+};
+
 export class EventStore {
-    constructor(dataDir) {
+    dataDir: string;
+    eventsDir: string;
+
+    constructor(dataDir: string) {
         this.dataDir = dataDir;
         this.eventsDir = path.join(dataDir, "events");
     }
 
-    async init() {
+    async init(): Promise<void> {
         await mkdir(this.eventsDir, { recursive: true });
     }
 
-    async append(sessionId, type, payload = {}, meta = {}) {
+    async append(sessionId: string, type: string, payload: Record<string, any> = {}, meta: Record<string, any> = {}): Promise<HadesEvent> {
         await this.init();
         const event = {
             id: await this.nextId(sessionId),
@@ -25,7 +37,7 @@ export class EventStore {
         return event;
     }
 
-    async list(sessionId = undefined) {
+    async list(sessionId: string | undefined = undefined): Promise<HadesEvent[]> {
         await this.init();
         if (sessionId) return this.readFile(sessionId);
         const files = await readdir(this.eventsDir).catch(() => []);
@@ -35,25 +47,25 @@ export class EventStore {
         return groups.flat().sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
     }
 
-    async readFile(sessionId) {
-        const raw = await readFile(this.fileFor(sessionId), "utf8").catch((error) => {
+    async readFile(sessionId: string): Promise<HadesEvent[]> {
+        const raw = await readFile(this.fileFor(sessionId), "utf8").catch((error: NodeJS.ErrnoException) => {
             if (error.code === "ENOENT") return "";
             throw error;
         });
         return raw.trim() ? raw.trim().split("\n").map((line) => JSON.parse(line)) : [];
     }
 
-    async nextId(sessionId) {
+    async nextId(sessionId: string): Promise<string> {
         const events = await this.readFile(sessionId);
         const n = events.length + 1;
         return `evt_${String(n).padStart(6, "0")}`;
     }
 
-    fileFor(sessionId) {
+    fileFor(sessionId: string): string {
         return path.join(this.eventsDir, `${safeName(sessionId)}.jsonl`);
     }
 }
 
-export function safeName(value) {
+export function safeName(value: string): string {
     return String(value).replace(/[^a-zA-Z0-9_.-]/g, "_");
 }

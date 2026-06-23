@@ -31,14 +31,18 @@ npm run demo
 Useful commands:
 
 ```bash
-HADES_DATA_DIR=.hades node src/cli.js init
-HADES_DATA_DIR=.hades node src/cli.js message wren "!write vault/hello.md <<<hello"
-HADES_DATA_DIR=.hades node src/cli.js message wren "!read vault/hello.md"
-HADES_DATA_DIR=.hades node src/cli.js events wren-default
-HADES_DATA_DIR=.hades node src/cli.js serve 7347
+npm run build
+HADES_DATA_DIR=.hades node dist/cli.js init
+HADES_DATA_DIR=.hades node dist/cli.js apply examples/generic/alpha.json
+HADES_DATA_DIR=.hades node dist/cli.js message agent-demo/demo "!write vault/hello.md <<<hello"
+HADES_DATA_DIR=.hades node dist/cli.js message agent-demo/demo "!read vault/hello.md"
+HADES_DATA_DIR=.hades node dist/cli.js events demo-default
+HADES_DATA_DIR=.hades node dist/cli.js serve 7347
 ```
 
 Set `HADES_USE_PI_SDK=1` to run the brain through the pi SDK adapter. Default mode is deterministic so tests and controller flows do not require model credentials.
+
+Wren is an example manifest under `examples/wren/`; the default demo uses `examples/generic/`. Core runtime code does not default to Wren or `agent-wren`.
 
 ## Core invariants
 

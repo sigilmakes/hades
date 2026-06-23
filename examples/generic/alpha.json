@@ -1,0 +1,39 @@
+{
+  "apiVersion": "hades.dev/v1alpha1",
+  "kind": "Agent",
+  "metadata": { "namespace": "agent-demo", "name": "demo" },
+  "spec": {
+    "displayName": "Demo",
+    "classRef": "resident-pi",
+    "homeRef": "demo-home",
+    "defaultSession": "demo-default",
+    "desiredState": "active"
+  }
+}
+---
+{
+  "apiVersion": "hades.dev/v1alpha1",
+  "kind": "Home",
+  "metadata": { "namespace": "agent-demo", "name": "demo-home" },
+  "spec": {
+    "layout": { "create": ["vault", "bin", "cron.d", "projects", "skills", "inbox", "outbox"] }
+  }
+}
+---
+{
+  "apiVersion": "hades.dev/v1alpha1",
+  "kind": "Listener",
+  "metadata": { "namespace": "agent-demo", "name": "demo-cli" },
+  "spec": { "agentRef": "demo", "platform": "cli", "routes": "default" }
+}
+---
+{
+  "apiVersion": "hades.dev/v1alpha1",
+  "kind": "CapabilityGrant",
+  "metadata": { "namespace": "agent-demo", "name": "demo-self-management" },
+  "spec": {
+    "subject": { "kind": "Agent", "name": "demo" },
+    "capabilities": ["updateOwnHome", "createOwnTool", "createOwnSchedule", "spawnChildAgent"],
+    "constraints": { "namespace": "own" }
+  }
+}

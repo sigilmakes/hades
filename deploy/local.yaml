@@ -3,11 +3,6 @@ kind: Namespace
 metadata:
   name: hades-system
 ---
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: agent-wren
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:

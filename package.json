@@ -4,17 +4,22 @@
   "description": "Kubernetes-native agent operating system prototype",
   "type": "module",
   "bin": {
-    "hades": "src/cli.js"
+    "hades": "dist/cli.js"
   },
   "scripts": {
-    "test": "node --test",
-    "demo": "node src/cli.js demo",
-    "serve": "node src/cli.js serve"
+    "build": "tsc",
+    "test": "npm run build && node --test",
+    "demo": "npm run build && node dist/cli.js demo",
+    "serve": "npm run build && node dist/cli.js serve"
   },
   "engines": {
     "node": ">=24"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "^0.79.10"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.3"
   }
 }
