@@ -146,9 +146,13 @@ async function rejectDeniedShebang(executable: string): Promise<void> {
     if (!firstLine.startsWith("#!")) return;
     const parts = firstLine.slice(2).trim().split(/\s+/).filter(Boolean);
     const interpreter = path.basename(parts[0] ?? "");
-    const envTarget = interpreter === "env" ? parts.slice(1).find((part) => !part.startsWith("-")) : undefined;
+    const envTarget = interpreter === "env" ? firstEnvCommand(parts.slice(1)) : undefined;
     const deniedName = path.basename(envTarget ?? interpreter);
     if (DENY_EXECUTABLES.has(deniedName)) {
         throw new Error(`Shebang interpreter ${deniedName} is not allowed in local confined hands`);
     }
+}
+
+function firstEnvCommand(parts: string[]): string | undefined {
+    return parts.find((part) => !part.startsWith("-") && !/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(part));
 }

@@ -215,6 +215,10 @@ test("hands reject executable symlinks and denied shebangs", async () => {
     await writeFile(shellScript, "#!/usr/bin/env bash\necho nope\n", "utf8");
     await chmod(shellScript, 0o755);
     await assert.rejects(hands.bash("bin/script"), /Shebang interpreter bash is not allowed/);
+    const envScript = path.join(home.status.path, "bin/env-script");
+    await writeFile(envScript, "#!/usr/bin/env -S FOO=bar bash\necho nope\n", "utf8");
+    await chmod(envScript, 0o755);
+    await assert.rejects(hands.bash("bin/env-script"), /Shebang interpreter bash is not allowed/);
 });
 
 test("hands prevent path escape", async () => {
