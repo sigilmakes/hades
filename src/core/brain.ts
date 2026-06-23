@@ -1,5 +1,6 @@
 import path from "node:path";
 import { HandsExecutor } from "./hands.js";
+import { PolicyEngine } from "./policy.js";
 import type { EventStore } from "./events.js";
 import type { StateStore } from "./state.js";
 import type { HadesResource } from "./types.js";
@@ -145,12 +146,15 @@ export class BrainRuntime {
         const match = directive.match(/^!schedule\s+(\S+)\s+(once|interval)\s+([\s\S]+?)\s+::\s*([\s\S]+)$/);
         if (!match) throw new Error("schedule directive format: !schedule <name> once|interval <when> :: <prompt>");
         const [, name, type, schedule, prompt] = match;
+        const subject = { kind: "Agent", name: requiredName(agent), namespace: requiredNamespace(agent) };
+        const policy = new PolicyEngine(this.state);
+        policy.assert(subject, "createOwnSchedule", { namespace: subject.namespace });
         const resource: HadesResource = {
             apiVersion: "hades.dev/v1alpha1",
             kind: "Schedule",
-            metadata: { namespace: requiredNamespace(agent), name },
+            metadata: { namespace: subject.namespace, name },
             spec: {
-                agentRef: requiredName(agent),
+                agentRef: subject.name,
                 type,
                 schedule: schedule.trim(),
                 session: requiredName(session),

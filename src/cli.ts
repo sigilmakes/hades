@@ -8,7 +8,7 @@ import { createServer } from "./api/server.js";
 const [rawCommand = "help", ...args] = process.argv.slice(2);
 const command = rawCommand === "--help" || rawCommand === "-h" ? "help" : rawCommand;
 const dataDir = dataDirFromEnv();
-const runtime = await new HadesRuntime(dataDir).init();
+let runtimePromise: Promise<HadesRuntime> | undefined;
 
 try {
     if (command === "help") help();
@@ -17,7 +17,7 @@ try {
     else if (command === "reconcile") await reconcile();
     else if (command === "message" || command === "say") await message(args);
     else if (command === "events" || command === "tail") await events(args[0]);
-    else if (command === "state") console.log(JSON.stringify(await runtime.snapshot(), null, 4));
+    else if (command === "state") console.log(JSON.stringify(await (await runtime()).snapshot(), null, 4));
     else if (command === "serve") await serve(args);
     else if (command === "demo") await demo();
     else throw new Error(`Unknown command ${command}`);
@@ -27,7 +27,7 @@ try {
     process.exitCode = 1;
 }
 
-function help() {
+function help(): void {
     console.log(`hades <command>
 
 Commands:
@@ -51,62 +51,71 @@ Environment:
 `);
 }
 
-async function initEmpty() {
+async function runtime(): Promise<HadesRuntime> {
+    runtimePromise ??= new HadesRuntime(dataDir).init();
+    return runtimePromise;
+}
+
+async function initEmpty(): Promise<void> {
     await mkdir(dataDir, { recursive: true });
-    await runtime.reconcile();
+    await (await runtime()).reconcile();
     console.log(`initialized empty Hades state in ${dataDir}`);
 }
 
-async function apply(file: string | undefined) {
+async function apply(file: string | undefined): Promise<void> {
     if (!file) throw new Error("apply requires a file");
+    const rt = await runtime();
     const resources = await loadManifest(file);
-    for (const resource of resources) await runtime.apply(resource);
-    await runtime.reconcile();
+    for (const resource of resources) await rt.apply(resource);
+    await rt.reconcile();
     console.log(`applied ${resources.length} resource(s)`);
 }
 
-async function reconcile() {
-    await runtime.reconcile();
+async function reconcile(): Promise<void> {
+    await (await runtime()).reconcile();
     console.log("reconciled");
 }
 
-async function message(args: string[]) {
+async function message(args: string[]): Promise<void> {
     const { namespace, rest } = parseNamespace(args);
     const [agent, ...textParts] = rest;
     if (!agent || textParts.length === 0) throw new Error("message requires <agent> <text>");
-    await runtime.reconcile();
-    const { reply } = await runtime.messageAgent(agent, textParts.join(" "), { namespace });
+    const rt = await runtime();
+    await rt.reconcile();
+    const { reply } = await rt.messageAgent(agent, textParts.join(" "), { namespace });
     process.stdout.write(reply.endsWith("\n") ? reply : `${reply}\n`);
 }
 
-async function events(session: string | undefined) {
-    const rows = await runtime.events.list(session);
+async function events(session: string | undefined): Promise<void> {
+    const rows = await (await runtime()).events.list(session);
     for (const event of rows) console.log(JSON.stringify(event));
 }
 
-async function serve(args: string[]) {
-    await runtime.reconcile();
+async function serve(args: string[]): Promise<void> {
+    const rt = await runtime();
+    await rt.reconcile();
     const port = Number(args[0] ?? process.env.PORT ?? 7347);
-    const server = createServer(runtime);
+    const server = createServer(rt);
     server.listen(port, () => console.log(`hades-api listening on :${port}, data=${dataDir}`));
 }
 
-async function demo() {
+async function demo(): Promise<void> {
     const [manifestArg = "examples/generic/alpha.json", agentRef = "agent-demo/demo"] = args;
     const manifest = path.resolve(manifestArg);
-    for (const resource of await loadManifest(manifest)) await runtime.apply(resource);
-    await runtime.reconcile();
+    const rt = await runtime();
+    for (const resource of await loadManifest(manifest)) await rt.apply(resource);
+    await rt.reconcile();
     console.log(`applied example manifest ${manifestArg} in ${dataDir}`);
-    console.log(await runtime.messageAgent(agentRef, "!write vault/demo.md <<<hello from Hades").then((r) => r.reply));
-    console.log(await runtime.messageAgent(agentRef, "!read vault/demo.md").then((r) => r.reply));
-    console.log(await runtime.messageAgent(agentRef, "!schedule check once 1970-01-01T00:00:00Z :: scheduled hello").then((r) => r.reply));
-    await runtime.reconcile();
+    console.log(await rt.messageAgent(agentRef, "!write vault/demo.md <<<hello from Hades").then((r) => r.reply));
+    console.log(await rt.messageAgent(agentRef, "!read vault/demo.md").then((r) => r.reply));
+    console.log(await rt.messageAgent(agentRef, "!schedule check once 1970-01-01T00:00:00Z :: scheduled hello").then((r) => r.reply));
+    await rt.reconcile();
     console.log("demo complete");
 }
 
-function parseNamespace(args: string[]) {
+function parseNamespace(args: string[]): { namespace?: string; rest: string[] } {
     const rest = [...args];
-    let namespace;
+    let namespace: string | undefined;
     for (let index = 0; index < rest.length;) {
         if (rest[index] === "--namespace" || rest[index] === "-n") {
             namespace = rest[index + 1];

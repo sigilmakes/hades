@@ -194,15 +194,23 @@ export class HadesRuntime {
     async createSchedule(subject: AgentSubject, spec: Record<string, any>): Promise<HadesResource> {
         const policy = new PolicyEngine(this.state);
         policy.assert(subject, "createOwnSchedule", { namespace: subject.namespace });
+        const agentRef = spec.agentRef ?? subject.name;
+        if (agentRef !== subject.name) throw new Error(`createOwnSchedule cannot target another agent: ${agentRef}`);
+        const sessionName = spec.session ?? `${subject.name}-default`;
+        const session = this.state.findByName("Session", sessionName, subject.namespace);
+        if (session?.spec?.agentRef && session.spec.agentRef !== subject.name) {
+            throw new Error(`createOwnSchedule cannot target another agent's session: ${sessionName}`);
+        }
+        const normalizedSpec = { ...spec, agentRef, session: sessionName };
         const resource: HadesResource = {
             apiVersion: "hades.dev/v1alpha1",
             kind: "Schedule",
             metadata: { namespace: subject.namespace, name: spec.name },
-            spec,
+            spec: normalizedSpec,
             status: { phase: "pending" },
         };
         await this.state.apply(resource);
-        await this.events.append(spec.session ?? `${subject.name}-default`, "schedule.created", { schedule: spec.name, by: subject.name });
+        await this.events.append(sessionName, "schedule.created", { schedule: spec.name, by: subject.name });
         return resource;
     }
 
@@ -272,8 +280,10 @@ async function exists(file: string): Promise<boolean> {
 }
 
 function safeHomePath(homePath: string, relativePath: string): string {
-    const target = path.resolve(homePath, relativePath);
-    if (!target.startsWith(path.resolve(homePath))) throw new Error(`Home bootstrap file escapes home: ${relativePath}`);
+    const root = path.resolve(homePath);
+    const target = path.resolve(root, relativePath);
+    const relative = path.relative(root, target);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error(`Home bootstrap file escapes home: ${relativePath}`);
     return target;
 }
 

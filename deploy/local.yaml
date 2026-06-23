@@ -21,7 +21,7 @@ spec:
       containers:
         - name: hades-api
           image: ghcr.io/sigilmakes/hades:dev
-          command: ["node", "src/cli.js", "serve", "7347"]
+          command: ["node", "dist/cli.js", "serve", "7347"]
           ports:
             - containerPort: 7347
           env:

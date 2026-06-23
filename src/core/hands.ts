@@ -27,8 +27,10 @@ export class HandsExecutor {
     }
 
     resolve(userPath = "."): string {
-        const resolved = path.resolve(this.homeRoot, userPath);
-        if (!resolved.startsWith(this.homeRoot)) throw new Error(`Path escapes home: ${userPath}`);
+        const root = path.resolve(this.homeRoot);
+        const resolved = path.resolve(root, userPath);
+        const relative = path.relative(root, resolved);
+        if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error(`Path escapes home: ${userPath}`);
         return resolved;
     }
 

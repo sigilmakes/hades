@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { access, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { HadesRuntime } from "../dist/core/controllers.js";
 import { HandsExecutor, sanitizedEnv } from "../dist/core/hands.js";
 import { createServer } from "../dist/api/server.js";
@@ -35,6 +36,18 @@ test("full local loop writes through hands and records durable events", async ()
     assert.ok(events.some((event) => event.type === "brain.sleeping"));
 });
 
+test("pi sdk is the default brain mode", async () => {
+    const { runtime } = await runtimeFixture();
+    const oldMode = process.env.HADES_BRAIN_MODE;
+    delete process.env.HADES_BRAIN_MODE;
+    try {
+        assert.equal(runtime.brain.brainMode({ kind: "Agent", metadata: { namespace: NS, name: "default-brain" }, spec: {} }), "pi-sdk");
+    } finally {
+        if (oldMode === undefined) delete process.env.HADES_BRAIN_MODE;
+        else process.env.HADES_BRAIN_MODE = oldMode;
+    }
+});
+
 test("agent can create schedule through policy-checked syscall", async () => {
     const { runtime } = await runtimeFixture();
     const schedule = await runtime.createSchedule(
@@ -47,6 +60,30 @@ test("agent can create schedule through policy-checked syscall", async () => {
     assert.ok(events.some((event) => event.type === "schedule.fired"));
 });
 
+test("createOwnSchedule cannot target another agent", async () => {
+    const { runtime } = await runtimeFixture();
+    await runtime.apply({ kind: "Agent", metadata: { namespace: NS, name: "other" }, spec: { defaultSession: "other-default" } });
+    await assert.rejects(
+        runtime.createSchedule(
+            { kind: "Agent", name: AGENT, namespace: NS },
+            { name: "bad-target", agentRef: "other", type: "once", schedule: "1970-01-01T00:00:00Z", prompt: "nope" },
+        ),
+        /cannot target another agent/,
+    );
+});
+
+test("deterministic schedule directive is policy checked", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
+    const runtime = await new HadesRuntime(dir).init();
+    await runtime.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
+    await runtime.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "deterministic" } } });
+    await runtime.reconcile();
+    await assert.rejects(
+        runtime.messageAgent(`${NS}/${AGENT}`, "!schedule bad once 1970-01-01T00:00:00Z :: nope"),
+        /Capability denied/,
+    );
+});
+
 test("capability denial is explicit", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
     const runtime = await new HadesRuntime(dir).init();
@@ -54,6 +91,17 @@ test("capability denial is explicit", async () => {
         runtime.createSchedule({ kind: "Agent", name: "intruder", namespace: NS }, { name: "bad" }),
         /Capability denied/,
     );
+});
+
+test("home controller rejects bootstrap path escapes", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
+    const runtime = await new HadesRuntime(dir).init();
+    await runtime.apply({
+        kind: "Home",
+        metadata: { namespace: "agent-generic", name: "generic-home" },
+        spec: { files: [{ path: "../generic-home-evil/readme.md", content: "bad" }] },
+    });
+    await assert.rejects(runtime.reconcile(), /escapes home/);
 });
 
 test("home controller bootstraps generic userland files", async () => {
@@ -109,9 +157,17 @@ test("unqualified agent names are rejected when ambiguous", async () => {
     await assert.rejects(runtime.messageAgent(AGENT, "hello"), /ambiguous/);
 });
 
+test("cli help does not initialize state", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "hades-cli-"));
+    const result = spawnSync(process.execPath, [path.resolve("dist/cli.js"), "--help"], { cwd, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    await assert.rejects(access(path.join(cwd, ".hades")), /ENOENT/);
+});
+
 test("hands prevent path escape", async () => {
     const { runtime } = await runtimeFixture();
     const home = runtime.state.findByName("Home", HOME, NS);
     const hands = new HandsExecutor({ homeRoot: home.status.path });
     await assert.rejects(hands.write("../escape", "bad"), /Path escapes home/);
+    await assert.rejects(hands.write(`../${path.basename(home.status.path)}-sibling/file`, "bad"), /Path escapes home/);
 });
