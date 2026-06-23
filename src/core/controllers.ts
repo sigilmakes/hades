@@ -192,26 +192,37 @@ export class HadesRuntime {
     }
 
     async createSchedule(subject: AgentSubject, spec: Record<string, any>): Promise<HadesResource> {
+        const resolvedSubject = this.resolveSubject(subject);
         const policy = new PolicyEngine(this.state);
-        policy.assert(subject, "createOwnSchedule", { namespace: subject.namespace });
-        const agentRef = spec.agentRef ?? subject.name;
-        if (agentRef !== subject.name) throw new Error(`createOwnSchedule cannot target another agent: ${agentRef}`);
-        const sessionName = spec.session ?? `${subject.name}-default`;
-        const session = this.state.findByName("Session", sessionName, subject.namespace);
-        if (session?.spec?.agentRef && session.spec.agentRef !== subject.name) {
+        policy.assert(resolvedSubject, "createOwnSchedule", { namespace: resolvedSubject.namespace });
+        const agentRef = spec.agentRef ?? resolvedSubject.name;
+        if (agentRef !== resolvedSubject.name) throw new Error(`createOwnSchedule cannot target another agent: ${agentRef}`);
+        const sessionName = spec.session ?? `${resolvedSubject.name}-default`;
+        const session = this.state.findByName("Session", sessionName, resolvedSubject.namespace);
+        if (!session) throw new Error(`createOwnSchedule requires an existing session: ${sessionName}`);
+        if (session.spec?.agentRef !== resolvedSubject.name) {
             throw new Error(`createOwnSchedule cannot target another agent's session: ${sessionName}`);
         }
         const normalizedSpec = { ...spec, agentRef, session: sessionName };
         const resource: HadesResource = {
             apiVersion: "hades.dev/v1alpha1",
             kind: "Schedule",
-            metadata: { namespace: subject.namespace, name: spec.name },
+            metadata: { namespace: resolvedSubject.namespace, name: spec.name },
             spec: normalizedSpec,
             status: { phase: "pending" },
         };
         await this.state.apply(resource);
-        await this.events.append(sessionName, "schedule.created", { schedule: spec.name, by: subject.name });
+        await this.events.append(sessionName, "schedule.created", { schedule: spec.name, by: resolvedSubject.name });
         return resource;
+    }
+
+    resolveSubject(subject: AgentSubject): AgentSubject {
+        if (subject.kind !== "Agent") throw new Error(`Unsupported subject kind ${subject.kind}`);
+        if (!subject.name) throw new Error("Subject name is required");
+        if (!subject.namespace) throw new Error("Subject namespace is required");
+        const agent = this.state.findByName("Agent", subject.name, subject.namespace);
+        if (!agent) throw new Error(`Subject agent ${subject.namespace}/${subject.name} not found`);
+        return { kind: "Agent", name: subject.name, namespace: subject.namespace };
     }
 
     async snapshot(): Promise<HadesState> {

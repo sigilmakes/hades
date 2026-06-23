@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { HadesRuntime } from "../dist/core/controllers.js";
-import { HandsExecutor, sanitizedEnv } from "../dist/core/hands.js";
+import { HandsExecutor, parseConfinedCommand, sanitizedEnv } from "../dist/core/hands.js";
 import { createServer } from "../dist/api/server.js";
 
 const NS = "agent-test";
@@ -60,6 +60,24 @@ test("agent can create schedule through policy-checked syscall", async () => {
     assert.ok(events.some((event) => event.type === "schedule.fired"));
 });
 
+test("createOwnSchedule requires concrete existing subject and session", async () => {
+    const { runtime } = await runtimeFixture();
+    await assert.rejects(
+        runtime.createSchedule(
+            { kind: "Agent", name: AGENT },
+            { name: "missing-namespace", agentRef: AGENT, type: "once", schedule: "1970-01-01T00:00:00Z", session: SESSION, prompt: "nope" },
+        ),
+        /Subject namespace is required/,
+    );
+    await assert.rejects(
+        runtime.createSchedule(
+            { kind: "Agent", name: AGENT, namespace: NS },
+            { name: "missing-session", agentRef: AGENT, type: "once", schedule: "1970-01-01T00:00:00Z", session: "does-not-exist", prompt: "nope" },
+        ),
+        /requires an existing session/,
+    );
+});
+
 test("createOwnSchedule cannot target another agent", async () => {
     const { runtime } = await runtimeFixture();
     await runtime.apply({ kind: "Agent", metadata: { namespace: NS, name: "other" }, spec: { defaultSession: "other-default" } });
@@ -87,8 +105,14 @@ test("deterministic schedule directive is policy checked", async () => {
 test("capability denial is explicit", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
     const runtime = await new HadesRuntime(dir).init();
+    await runtime.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
+    await runtime.apply({ kind: "Agent", metadata: { namespace: NS, name: "nogrant" }, spec: { homeRef: HOME, defaultSession: "nogrant-default" } });
+    await runtime.reconcile();
     await assert.rejects(
-        runtime.createSchedule({ kind: "Agent", name: "intruder", namespace: NS }, { name: "bad" }),
+        runtime.createSchedule(
+            { kind: "Agent", name: "nogrant", namespace: NS },
+            { name: "bad", agentRef: "nogrant", session: "nogrant-default" },
+        ),
         /Capability denied/,
     );
 });
@@ -121,6 +145,14 @@ test("home controller bootstraps generic userland files", async () => {
     await runtime.reconcile();
     const home = runtime.state.findByName("Home", "generic-home", "agent-generic");
     assert.equal(await readFile(path.join(home.status.path, "vault/readme.md"), "utf8"), "hello");
+});
+
+test("local hands bash rejects host shell escape syntax", () => {
+    assert.throws(() => parseConfinedCommand("cat /etc/passwd"), /Home-relative executable|Path escapes home/);
+    assert.throws(() => parseConfinedCommand("bin/tool ../outside"), /Path escapes home/);
+    assert.throws(() => parseConfinedCommand("bash -lc 'cat /etc/passwd'"), /Home-relative executable|not allowed/);
+    assert.throws(() => parseConfinedCommand("bin/tool $(cat vault/file)"), /metacharacters/);
+    assert.deepEqual(parseConfinedCommand("bin/tool vault/file"), ["bin/tool", "vault/file"]);
 });
 
 test("hands env does not expose secret-like variables", () => {

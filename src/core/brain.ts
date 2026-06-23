@@ -74,7 +74,7 @@ export class BrainRuntime {
                     api.registerTool(defineTool({
                         name: "hades_bash",
                         label: "Hades Bash",
-                        description: "Run a shell command in the agent Home through Hades Hands.",
+                        description: "Run a confined Home-relative executable through Hades Hands.",
                         parameters: Type.Object({ command: Type.String(), cwd: Type.Optional(Type.String()) }),
                         execute: async (_id: string, params: { command: string; cwd?: string }) => {
                             const result = await hands.bash(params.command, params.cwd ?? ".");

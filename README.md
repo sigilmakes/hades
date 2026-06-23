@@ -43,7 +43,7 @@ For day-to-day local use from a checkout:
 
 ## Brain Mode
 
-The default brain mode is **pi SDK**. The SDK path registers Hades tools (`hades_read`, `hades_write`, `hades_bash`) that route through Hands; it does not expose pi's local filesystem tools to the brain.
+The default brain mode is **pi SDK**. The SDK path registers Hades tools (`hades_read`, `hades_write`, `hades_bash`) that route through Hands; it does not expose pi's local filesystem tools to the brain. In the local prototype, `hades_bash` is deliberately confined to Home-relative executables and rejects absolute paths, `..`, shell metacharacters, and host shell interpreters. Real Kubernetes hands should replace this with pod/runtime isolation.
 
 The generic demo pins `spec.brain.mode: deterministic` so tests and smoke demos run offline without model credentials. You can also force offline mode with:
 

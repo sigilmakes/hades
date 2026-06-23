@@ -1,10 +1,12 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import type { EventStore } from "./events.js";
 import type { ToolResult } from "./types.js";
 
 const DENY_ENV = [/KEY/i, /TOKEN/i, /SECRET/i, /PASSWORD/i, /AUTH/i];
+const DENY_EXECUTABLES = new Set(["bash", "sh", "zsh", "fish", "python", "python3", "node", "perl", "ruby", "php"]);
+const SHELL_METACHARS = /[|&;<>()$`\\\n\r]/;
 
 type HandsOptions = {
     homeRoot: string;
@@ -53,7 +55,8 @@ export class HandsExecutor {
 
     async bash(command: string, cwd = "."): Promise<ToolResult> {
         await this.emit("tool.requested", { tool: "bash", command });
-        const result = await runBash(command, this.resolve(cwd), this.timeoutMs);
+        const argv = parseConfinedCommand(command);
+        const result = await runConfined(argv, this.resolve(cwd), this.homeRoot, this.timeoutMs);
         await this.emit(result.code === 0 ? "tool.completed" : "tool.failed", {
             tool: "bash",
             command,
@@ -79,9 +82,29 @@ export function sanitizedEnv(): NodeJS.ProcessEnv {
     return env;
 }
 
-function runBash(command: string, cwd: string, timeoutMs: number): Promise<ToolResult> {
+export function parseConfinedCommand(command: string): string[] {
+    if (!command.trim()) throw new Error("Empty command");
+    if (SHELL_METACHARS.test(command)) throw new Error("Shell metacharacters are not allowed in local confined hands");
+    const argv = command.match(/"[^"]*"|'[^']*'|\S+/g)?.map((token) => token.replace(/^['"]|['"]$/g, "")) ?? [];
+    if (argv.length === 0) throw new Error("Empty command");
+    const executable = argv[0];
+    if (!executable.includes("/")) throw new Error("Local confined hands require a Home-relative executable path, e.g. bin/tool");
+    if (DENY_EXECUTABLES.has(path.basename(executable))) throw new Error(`Executable ${executable} is not allowed in local confined hands`);
+    for (const token of argv) {
+        if (path.isAbsolute(token) || token.split(/[\\/]+/).includes("..")) {
+            throw new Error(`Path escapes home in command token: ${token}`);
+        }
+    }
+    return argv;
+}
+
+async function runConfined(argv: string[], cwd: string, homeRoot: string, timeoutMs: number): Promise<ToolResult> {
+    const executable = path.resolve(homeRoot, argv[0]);
+    const relativeExecutable = path.relative(path.resolve(homeRoot), executable);
+    if (relativeExecutable.startsWith("..") || path.isAbsolute(relativeExecutable)) throw new Error(`Executable escapes home: ${argv[0]}`);
+    await access(executable);
     return new Promise((resolve) => {
-        const child = spawn("bash", ["-lc", command], {
+        const child = spawn(executable, argv.slice(1), {
             cwd,
             env: sanitizedEnv(),
             stdio: ["ignore", "pipe", "pipe"],
@@ -89,15 +112,15 @@ function runBash(command: string, cwd: string, timeoutMs: number): Promise<ToolR
         let stdout = "";
         let stderr = "";
         let settled = false;
+        const timeout = setTimeout(() => {
+            child.kill("SIGKILL");
+        }, timeoutMs);
         const finish = (result: ToolResult) => {
             if (settled) return;
             settled = true;
             clearTimeout(timeout);
             resolve(result);
         };
-        const timeout = setTimeout(() => {
-            child.kill("SIGKILL");
-        }, timeoutMs);
         child.stdout.on("data", (data) => { stdout += data.toString(); });
         child.stderr.on("data", (data) => { stderr += data.toString(); });
         child.on("error", (error) => {
