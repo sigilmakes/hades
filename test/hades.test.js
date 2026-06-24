@@ -213,6 +213,10 @@ test("API exposes agents, primitives, and message endpoint", async () => {
         const primitives = await fetch(`http://127.0.0.1:${port}/hades/v1/primitives?decision=adopt`).then((res) => res.json());
         assert.ok(primitives.some((primitive) => primitive.id === "workflow.dag"));
         assert.ok(primitives.every((primitive) => primitive.decision === "adopt"));
+        const deferred = await fetch(`http://127.0.0.1:${port}/hades/v1/primitives?decision=defer`).then((res) => res.json());
+        assert.ok(deferred.length > 0);
+        assert.ok(deferred.every((primitive) => primitive.decision === "defer"));
+        assert.deepEqual(allPrimitives.map((primitive) => `${primitive.layer}/${primitive.id}`), [...allPrimitives].map((primitive) => `${primitive.layer}/${primitive.id}`).sort());
         const invalidPrimitiveResponse = await fetch(`http://127.0.0.1:${port}/hades/v1/primitives?decision=garbage`);
         assert.equal(invalidPrimitiveResponse.status, 400);
         const response = await fetch(`http://127.0.0.1:${port}/hades/v1/agents/${AGENT}/message`, {
@@ -248,6 +252,9 @@ test("cli primitives lists adopted primitives without initializing state", async
     assert.ok(primitives.some((primitive) => primitive.id === "mcp.brokered-tools"));
     assert.ok(primitives.every((primitive) => primitive.decision === "adopt"));
     await assert.rejects(access(path.join(cwd, ".hades")), /ENOENT/);
+    const deferred = spawnSync(process.execPath, [path.resolve("dist/cli.js"), "primitives", "defer"], { cwd, encoding: "utf8" });
+    assert.equal(deferred.status, 0, deferred.stderr);
+    assert.ok(JSON.parse(deferred.stdout).every((primitive) => primitive.decision === "defer"));
     const invalid = spawnSync(process.execPath, [path.resolve("dist/cli.js"), "primitives", "garbage"], { cwd, encoding: "utf8" });
     assert.notEqual(invalid.status, 0);
     assert.match(invalid.stderr, /Unknown primitive decision garbage/);
