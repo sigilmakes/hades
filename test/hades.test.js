@@ -197,10 +197,15 @@ test("local hands exec rejects host shell escape syntax", () => {
 test("hands env does not expose secret-like variables", () => {
     process.env.HADES_FAKE_SECRET = "nope";
     process.env.HADES_FAKE_TOKEN = "nope";
-    const env = sanitizedEnv();
-    assert.equal(env.HADES_FAKE_SECRET, undefined);
-    assert.equal(env.HADES_FAKE_TOKEN, undefined);
-    assert.equal(env.HADES_HANDS, "1");
+    try {
+        const env = sanitizedEnv();
+        assert.equal(env.HADES_FAKE_SECRET, undefined);
+        assert.equal(env.HADES_FAKE_TOKEN, undefined);
+        assert.equal(env.HADES_HANDS, "1");
+    } finally {
+        delete process.env.HADES_FAKE_SECRET;
+        delete process.env.HADES_FAKE_TOKEN;
+    }
 });
 
 test("sandbox policy is parameterized so a permissive profile would allow interpreters", () => {
