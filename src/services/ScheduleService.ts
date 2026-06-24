@@ -19,6 +19,7 @@ export class ScheduleService {
             schedule.status ??= {};
             schedule.status.phase ??= "pending";
             schedule.status.createdAt ??= new Date(now).toISOString();
+            if (schedule.status.phase === "invalid") continue;
             try {
                 const recurring = schedule.spec?.type === "interval" || schedule.spec?.type === "cron";
                 if (recurring) {
