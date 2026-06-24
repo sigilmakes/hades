@@ -19,16 +19,25 @@ export class ScheduleService {
             schedule.status ??= {};
             schedule.status.phase ??= "pending";
             schedule.status.createdAt ??= new Date(now).toISOString();
-            const recurring = schedule.spec?.type === "interval" || schedule.spec?.type === "cron";
-            if (recurring) {
-                schedule.status.phase = "active";
-                if (!isScheduleDue(schedule.spec ?? {}, schedule.status.lastFiredAt, schedule.status.createdAt, now)) continue;
-                await this.fireSchedule(schedule, deliver);
-                schedule.status.lastFiredAt = new Date().toISOString();
-                continue;
-            }
-            if (schedule.spec?.type === "once" && !schedule.status.firedAt && isScheduleDue(schedule.spec ?? {}, undefined, schedule.status.createdAt, now)) {
-                await this.fireSchedule(schedule, deliver);
+            try {
+                const recurring = schedule.spec?.type === "interval" || schedule.spec?.type === "cron";
+                if (recurring) {
+                    schedule.status.phase = "active";
+                    if (!isScheduleDue(schedule.spec ?? {}, schedule.status.lastFiredAt, schedule.status.createdAt, now)) continue;
+                    // claim this occurrence before any await so a concurrent reconcile cannot double-fire
+                    schedule.status.lastFiredAt = new Date().toISOString();
+                    await this.fireSchedule(schedule, deliver);
+                    continue;
+                }
+                if (schedule.spec?.type === "once" && !schedule.status.firedAt && isScheduleDue(schedule.spec ?? {}, undefined, schedule.status.createdAt, now)) {
+                    schedule.status.firedAt = new Date().toISOString();
+                    await this.fireSchedule(schedule, deliver);
+                }
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                schedule.status.phase = "invalid";
+                schedule.status.error = message;
+                await this.events.append("system", "schedule.invalid", { schedule: nameOf(schedule), error: message }).catch(() => {});
             }
         }
     }
@@ -42,7 +51,6 @@ export class ScheduleService {
         await this.events.append(nameOf(session), "schedule.fired", { schedule: nameOf(schedule) });
         schedule.status ??= {};
         const recurring = schedule.spec?.type === "interval" || schedule.spec?.type === "cron";
-        schedule.status.firedAt = new Date().toISOString();
         schedule.status.phase = recurring ? "active" : "completed";
         await deliver(nameOf(agent), schedule.spec?.prompt ?? `Schedule ${nameOf(schedule)} fired`, {
             namespace,

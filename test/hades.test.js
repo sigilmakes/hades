@@ -148,6 +148,45 @@ test("cron schedule fires once per matching minute across reconciles", async () 
     assert.equal(fired2, fired1, "cron must not fire twice for the same matching minute");
 });
 
+test("once relative schedule is due only after createdAt plus the duration", () => {
+    const created = new Date(Date.now() - 10_000).toISOString();
+    assert.equal(isScheduleDue({ type: "once", schedule: "+5s" }, undefined, created, Date.now()), true);
+    const fresh = new Date().toISOString();
+    assert.equal(isScheduleDue({ type: "once", schedule: "+5s" }, undefined, fresh, Date.now()), false);
+});
+
+test("a malformed recurring schedule is marked invalid without crashing the reconcile loop", async () => {
+    const { runtime } = await runtimeFixture();
+    await runtime.apply({ kind: "Agent", metadata: { namespace: NS, name: "extra" }, spec: { defaultSession: "extra-default" } });
+    await runtime.apply({ kind: "Home", metadata: { namespace: NS, name: "extra-home" }, spec: {} });
+    await runtime.reconcile();
+    // a valid schedule that should still fire
+    await runtime.createSchedule(
+        { kind: "Agent", name: AGENT, namespace: NS },
+        { name: "good-once", agentRef: AGENT, type: "once", schedule: "1970-01-01T00:00:00Z", session: SESSION, prompt: "ok" },
+    );
+    // a malformed interval (bad unit)
+    await runtime.apply({ kind: "Schedule", metadata: { namespace: NS, name: "bad-interval" }, spec: { agentRef: AGENT, type: "interval", schedule: "5x", session: SESSION, prompt: "nope" } });
+    await runtime.reconcile();
+    const events = await runtime.events.list(SESSION);
+    assert.ok(events.some((e) => e.type === "schedule.fired"), "valid schedule still fired despite a sibling malformed one");
+    const sys = await runtime.events.list("system");
+    assert.ok(sys.some((e) => e.type === "schedule.invalid" && e.payload.schedule === "bad-interval"), "malformed schedule recorded as invalid");
+    const bad = runtime.state.findByName("Schedule", "bad-interval", NS);
+    assert.equal(bad.status.phase, "invalid");
+});
+
+test("concurrent reconciles do not double-fire a matching cron schedule", async () => {
+    const { runtime } = await runtimeFixture();
+    await runtime.createSchedule(
+        { kind: "Agent", name: AGENT, namespace: NS },
+        { name: "race-minute", agentRef: AGENT, type: "cron", schedule: "* * * * *", session: SESSION, prompt: "race" },
+    );
+    await Promise.all([runtime.reconcile(), runtime.reconcile()]);
+    const fired = (await runtime.events.list(SESSION)).filter((e) => e.type === "schedule.fired").length;
+    assert.equal(fired, 1, "a matching minute must fire exactly once even under concurrent reconcile");
+});
+
 test("createOwnSchedule requires concrete existing subject and session", async () => {
     const { runtime } = await runtimeFixture();
     await assert.rejects(

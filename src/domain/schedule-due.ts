@@ -12,7 +12,10 @@ export type ScheduleSpec = {
  *
  * - once: ISO timestamp due when now >= time; `+Ns/m/h` due when now >= createdAt + duration.
  * - interval: due when now >= (lastFiredAt ?? createdAt) + duration.
- * - cron: 5-field expression; due when croner reports an occurrence in (lastFiredAt ?? createdAt, now].
+ * - cron: 5-field Vixie expression; due when the current minute matches the pattern and the
+ *   schedule has not already fired this minute (lastFiredAt < minuteStart). This is
+ *   current-minute-only: downtime across multiple matching minutes drops those runs. Catch-up
+ *   is intentionally out of scope for v0.
  */
 export function isScheduleDue(spec: ScheduleSpec, lastFiredAt: string | undefined, createdAt: string, now: number): boolean {
     const type = (spec.type ?? "once") as ScheduleType;
