@@ -22,8 +22,8 @@ Mounts and volume projection
 Timers/cron
   -> Schedule
 
-Per-agent gateway listeners
-  -> Gateway + Listener
+Per-agent listener routing
+  -> Listener now; future Gateway provider daemon when behavior exists
 
 Paired device nodes
   -> Node + declared caps/commands

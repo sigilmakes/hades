@@ -34,6 +34,9 @@ test("primitive catalog adopts useful surfaces and rejects noise", () => {
     assert.equal(byId.get("gateway.nodes")?.decision, "adopt");
     assert.equal(byId.get("linux.dbus-raw")?.decision, "reject");
     assert.equal(byId.get("mcp.sidecar-sprawl")?.decision, "reject");
+    assert.equal(Object.isFrozen(PRIMITIVES), true);
+    assert.equal(Object.isFrozen(byId.get("mcp.brokered-tools")), true);
+    assert.equal(Object.isFrozen(byId.get("mcp.brokered-tools")?.mapsToKinds), true);
 });
 
 async function runtimeFixture() {
@@ -223,10 +226,15 @@ test("API exposes agents, primitives, and message endpoint", async () => {
 test("candidate primitive resources are not accepted before behavior exists", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
     const runtime = await createRuntime(dir).init();
-    await assert.rejects(
-        runtime.apply({ kind: "Gateway", metadata: { namespace: "hades-system", name: "local" }, spec: { transport: "websocket" } }),
-        /Unsupported kind Gateway/,
-    );
+    const candidateKinds = ["Gateway", "Node", "ToolProvider", "Workflow", "ExternalSession", "SandboxProfile", "SecretLease"];
+    const crds = await readFile(path.resolve("deploy/crds/hades.dev_resources.yaml"), "utf8");
+    for (const kind of candidateKinds) {
+        await assert.rejects(
+            runtime.apply({ kind, metadata: { namespace: "hades-system", name: "candidate" }, spec: {} }),
+            new RegExp(`Unsupported kind ${kind}`),
+        );
+        assert.equal(crds.includes(`kind: ${kind}`), false, `${kind} should not have a CRD before behavior exists`);
+    }
 });
 
 test("cli primitives lists adopted primitives without initializing state", async () => {

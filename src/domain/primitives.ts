@@ -9,18 +9,18 @@ export function isPrimitiveDecision(value: string): value is PrimitiveDecision {
 }
 
 export type AgentOSPrimitive = {
-    id: string;
-    name: string;
-    layer: PrimitiveLayer;
-    decision: PrimitiveDecision;
-    implementation: PrimitiveImplementation;
-    why: string;
-    mapsToKinds: string[];
-    relatedConcepts?: string[];
-    sources: string[];
+    readonly id: string;
+    readonly name: string;
+    readonly layer: PrimitiveLayer;
+    readonly decision: PrimitiveDecision;
+    readonly implementation: PrimitiveImplementation;
+    readonly why: string;
+    readonly mapsToKinds: readonly string[];
+    readonly relatedConcepts?: readonly string[];
+    readonly sources: readonly string[];
 };
 
-export const PRIMITIVES: AgentOSPrimitive[] = [
+const CATALOG: AgentOSPrimitive[] = [
     {
         id: "linux.namespaces",
         name: "Linux namespaces",
@@ -93,13 +93,14 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         sources: ["terminal", "tmux", "Kubernetes exec/attach"],
     },
     {
-        id: "gateway.per-agent-listeners",
-        name: "Per-agent gateway listeners",
+        id: "listener.per-agent-routing",
+        name: "Per-agent listener routing",
         layer: "gateway",
         decision: "adopt",
         implementation: "runtime",
-        why: "OpenClaw validates a single Gateway daemon owning many channels, but Hades needs listener attachment per agent/session to avoid Wren hardcoding.",
-        mapsToKinds: ["Gateway", "Listener"],
+        why: "Hades already models Listener attachments per agent/session, which avoids Wren hardcoding and lets gateways route many surfaces without being the agent identity.",
+        mapsToKinds: ["Listener"],
+        relatedConcepts: ["future Gateway provider daemon"],
         sources: ["OpenClaw Gateway", "Hades Listener model"],
     },
     {
@@ -204,3 +205,14 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         sources: ["MCP", "ACP MCP-over-ACP"],
     },
 ];
+
+export const PRIMITIVES: readonly AgentOSPrimitive[] = Object.freeze(CATALOG.map(freezePrimitive));
+
+function freezePrimitive(primitive: AgentOSPrimitive): AgentOSPrimitive {
+    return Object.freeze({
+        ...primitive,
+        mapsToKinds: Object.freeze([...primitive.mapsToKinds]),
+        relatedConcepts: primitive.relatedConcepts ? Object.freeze([...primitive.relatedConcepts]) : undefined,
+        sources: Object.freeze([...primitive.sources]),
+    });
+}
