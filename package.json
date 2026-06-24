@@ -20,7 +20,8 @@
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.79.10",
-    "@earendil-works/pi-coding-agent": "^0.79.10"
+    "@earendil-works/pi-coding-agent": "^0.79.10",
+    "croner": "^10.0.1"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

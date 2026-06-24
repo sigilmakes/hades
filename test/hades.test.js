@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { createRuntime } from "../dist/runtime/LocalRuntime.js";
 import { LocalConfinedHands, sanitizedEnv } from "../dist/adapters/hands/LocalConfinedHands.js";
 import { deniedShebangInterpreter, parseConfinedExecCommand } from "../dist/adapters/hands/ConfinedCommandParser.js";
+import { isScheduleDue } from "../dist/domain/schedule-due.js";
 import { CONFINED_PROFILE } from "../dist/domain/sandbox.js";
 import { createServer } from "../dist/adapters/api/server.js";
 import { PRIMITIVES } from "../dist/domain/primitives.js";
@@ -97,6 +98,54 @@ test("agent can create schedule through policy-checked syscall", async () => {
     await runtime.reconcile();
     const events = await runtime.events.list(SESSION);
     assert.ok(events.some((event) => event.type === "schedule.fired"));
+});
+
+test("interval schedule fires repeatedly across reconcile passes", async () => {
+    const { runtime } = await runtimeFixture();
+    await runtime.createSchedule(
+        { kind: "Agent", name: AGENT, namespace: NS },
+        { name: "every-second", agentRef: AGENT, type: "interval", schedule: "0s", session: SESSION, prompt: "tick" },
+    );
+    await runtime.reconcile();
+    let events = await runtime.events.list(SESSION);
+    const fired1 = events.filter((e) => e.type === "schedule.fired").length;
+    assert.ok(fired1 >= 1, "interval should fire on first reconcile");
+    // advance lastFiredAt into the past so it is due again
+    const sched = runtime.state.findByName("Schedule", "every-second", NS);
+    sched.status.lastFiredAt = new Date(Date.now() - 60_000).toISOString();
+    await runtime.reconcile();
+    events = await runtime.events.list(SESSION);
+    const fired2 = events.filter((e) => e.type === "schedule.fired").length;
+    assert.ok(fired2 > fired1, "interval should fire again once lastFiredAt is stale");
+    assert.equal(sched.status.phase, "active");
+});
+
+test("cron schedule is due on first matching minute and guarded within the same minute", () => {
+    const createdAt = new Date(Date.now() - 120_000).toISOString();
+    const now = Date.now();
+    // never fired -> due on the current matching minute
+    assert.equal(isScheduleDue({ type: "cron", schedule: "* * * * *" }, undefined, createdAt, now), true);
+    // already fired this minute -> not due again until the minute rolls over
+    const lastFiredThisMinute = new Date(now).toISOString();
+    assert.equal(isScheduleDue({ type: "cron", schedule: "* * * * *" }, lastFiredThisMinute, createdAt, now), false);
+    // fired in a previous minute -> due again
+    const lastFiredPrevMinute = new Date(now - 120_000).toISOString();
+    assert.equal(isScheduleDue({ type: "cron", schedule: "* * * * *" }, lastFiredPrevMinute, createdAt, now), true);
+});
+
+test("cron schedule fires once per matching minute across reconciles", async () => {
+    const { runtime } = await runtimeFixture();
+    await runtime.createSchedule(
+        { kind: "Agent", name: AGENT, namespace: NS },
+        { name: "every-minute", agentRef: AGENT, type: "cron", schedule: "* * * * *", session: SESSION, prompt: "cron tick" },
+    );
+    await runtime.reconcile();
+    const fired1 = (await runtime.events.list(SESSION)).filter((e) => e.type === "schedule.fired").length;
+    assert.ok(fired1 >= 1, "cron matching the current minute should fire");
+    // second reconcile within the same minute must not fire again
+    await runtime.reconcile();
+    const fired2 = (await runtime.events.list(SESSION)).filter((e) => e.type === "schedule.fired").length;
+    assert.equal(fired2, fired1, "cron must not fire twice for the same matching minute");
 });
 
 test("createOwnSchedule requires concrete existing subject and session", async () => {

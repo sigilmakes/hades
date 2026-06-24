@@ -1,4 +1,5 @@
 import { nameOf, namespaceOf, type AgentSubject, type HadesResource } from "../domain/resources.js";
+import { isScheduleDue } from "../domain/schedule-due.js";
 import type { EventStorePort } from "../ports/EventStore.js";
 import type { StateStorePort } from "../ports/StateStore.js";
 import { PolicyService } from "./PolicyService.js";
@@ -13,10 +14,20 @@ export class ScheduleService {
     ) {}
 
     async reconcileSchedules(deliver: DeliverScheduledMessage): Promise<void> {
+        const now = Date.now();
         for (const schedule of this.state.list("Schedule")) {
             schedule.status ??= {};
             schedule.status.phase ??= "pending";
-            if (schedule.spec?.type === "once" && !schedule.status.firedAt && isDue(schedule.spec.schedule)) {
+            schedule.status.createdAt ??= new Date(now).toISOString();
+            const recurring = schedule.spec?.type === "interval" || schedule.spec?.type === "cron";
+            if (recurring) {
+                schedule.status.phase = "active";
+                if (!isScheduleDue(schedule.spec ?? {}, schedule.status.lastFiredAt, schedule.status.createdAt, now)) continue;
+                await this.fireSchedule(schedule, deliver);
+                schedule.status.lastFiredAt = new Date().toISOString();
+                continue;
+            }
+            if (schedule.spec?.type === "once" && !schedule.status.firedAt && isScheduleDue(schedule.spec ?? {}, undefined, schedule.status.createdAt, now)) {
                 await this.fireSchedule(schedule, deliver);
             }
         }
@@ -30,8 +41,9 @@ export class ScheduleService {
         if (!session) throw new Error(`Schedule ${nameOf(schedule)} references missing session`);
         await this.events.append(nameOf(session), "schedule.fired", { schedule: nameOf(schedule) });
         schedule.status ??= {};
+        const recurring = schedule.spec?.type === "interval" || schedule.spec?.type === "cron";
         schedule.status.firedAt = new Date().toISOString();
-        schedule.status.phase = "completed";
+        schedule.status.phase = recurring ? "active" : "completed";
         await deliver(nameOf(agent), schedule.spec?.prompt ?? `Schedule ${nameOf(schedule)} fired`, {
             namespace,
             origin: { kind: "Schedule", name: nameOf(schedule) },
@@ -61,16 +73,4 @@ export class ScheduleService {
         await this.events.append(sessionName, "schedule.created", { schedule: spec.name, by: resolvedSubject.name });
         return resource;
     }
-}
-
-function isDue(value: string | undefined): boolean {
-    if (!value) return false;
-    if (value.startsWith("+")) {
-        const amount = Number(value.slice(1, -1));
-        const unit = value.at(-1);
-        const ms = unit === "s" ? amount * 1000 : unit === "m" ? amount * 60_000 : amount * 3600_000;
-        return ms <= 0;
-    }
-    const time = Date.parse(value);
-    return Number.isFinite(time) && time <= Date.now();
 }
