@@ -6,7 +6,8 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createRuntime } from "../dist/runtime/LocalRuntime.js";
 import { LocalConfinedHands, sanitizedEnv } from "../dist/adapters/hands/LocalConfinedHands.js";
-import { parseConfinedExecCommand } from "../dist/adapters/hands/ConfinedCommandParser.js";
+import { deniedShebangInterpreter, parseConfinedExecCommand } from "../dist/adapters/hands/ConfinedCommandParser.js";
+import { CONFINED_PROFILE } from "../dist/domain/sandbox.js";
 import { createServer } from "../dist/adapters/api/server.js";
 import { PRIMITIVES } from "../dist/domain/primitives.js";
 
@@ -186,11 +187,11 @@ test("home controller bootstraps generic userland files", async () => {
 });
 
 test("local hands exec rejects host shell escape syntax", () => {
-    assert.throws(() => parseConfinedExecCommand("cat /etc/passwd"), /Home-relative executable|Path escapes home/);
-    assert.throws(() => parseConfinedExecCommand("bin/tool ../outside"), /Path escapes home/);
-    assert.throws(() => parseConfinedExecCommand("bash -lc 'cat /etc/passwd'"), /Home-relative executable|not allowed/);
-    assert.throws(() => parseConfinedExecCommand("bin/tool $(cat vault/file)"), /metacharacters/);
-    assert.deepEqual(parseConfinedExecCommand("bin/tool vault/file"), ["bin/tool", "vault/file"]);
+    assert.throws(() => parseConfinedExecCommand("cat /etc/passwd", CONFINED_PROFILE), /Home-relative executable|Path escapes home/);
+    assert.throws(() => parseConfinedExecCommand("bin/tool ../outside", CONFINED_PROFILE), /Path escapes home/);
+    assert.throws(() => parseConfinedExecCommand("bash -lc 'cat /etc/passwd'", CONFINED_PROFILE), /Home-relative executable|not allowed/);
+    assert.throws(() => parseConfinedExecCommand("bin/tool $(cat vault/file)", CONFINED_PROFILE), /metacharacters/);
+    assert.deepEqual(parseConfinedExecCommand("bin/tool vault/file", CONFINED_PROFILE), ["bin/tool", "vault/file"]);
 });
 
 test("hands env does not expose secret-like variables", () => {
@@ -200,6 +201,19 @@ test("hands env does not expose secret-like variables", () => {
     assert.equal(env.HADES_FAKE_SECRET, undefined);
     assert.equal(env.HADES_FAKE_TOKEN, undefined);
     assert.equal(env.HADES_HANDS, "1");
+});
+
+test("sandbox policy is parameterized so a permissive profile would allow interpreters", () => {
+    const permissive = {
+        id: "permissive-container",
+        deniedInterpreters: new Set(),
+        denyEnvPatterns: [],
+        allowShellMetachars: true,
+        requireHomeRelativeExecutable: false,
+        timeoutMs: 30000,
+    };
+    assert.deepEqual(parseConfinedExecCommand("bash -lc 'echo hi'", permissive), ["bash", "-lc", "echo hi"]);
+    assert.equal(deniedShebangInterpreter("#!/usr/bin/env bash\n", permissive), undefined);
 });
 
 test("API exposes agents, primitives, and message endpoint", async () => {
@@ -214,7 +228,7 @@ test("API exposes agents, primitives, and message endpoint", async () => {
         assert.ok(allPrimitives.some((primitive) => primitive.decision === "adopt"));
         assert.ok(allPrimitives.some((primitive) => primitive.decision === "reject"));
         const primitives = await fetch(`http://127.0.0.1:${port}/hades/v1/primitives?decision=adopt`).then((res) => res.json());
-        assert.ok(primitives.some((primitive) => primitive.id === "workflow.dag"));
+        assert.ok(primitives.some((primitive) => primitive.id === "scripting.sandbox"));
         assert.ok(primitives.every((primitive) => primitive.decision === "adopt"));
         const deferred = await fetch(`http://127.0.0.1:${port}/hades/v1/primitives?decision=defer`).then((res) => res.json());
         assert.ok(deferred.length > 0);

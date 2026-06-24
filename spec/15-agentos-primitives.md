@@ -13,8 +13,12 @@ Do not hand agents raw substrate power.
 ## Adopt Now
 
 ```text
+Scripting sandbox (execute(name, input) -> string)
+  -> HandsBackend.exec under a SandboxProfile
+  -> confined-local profile now; container-isolated profile when real isolation exists
+
 Linux namespaces/cgroups/capabilities/seccomp
-  -> SandboxProfile + Hands/Brain resource limits
+  -> SandboxProfile inputs for the container-isolated profile
 
 Mounts and volume projection
   -> Home, workspace, scratch, SecretLease
@@ -32,14 +36,13 @@ Brokered MCP tools
   -> ToolProvider + policy-filtered catalog
 
 ACP external harness sessions
-  -> ExternalSession + Workflow/Run integration
-
-Dynamic workflow DAGs
-  -> Workflow resource for deterministic orchestration outside model turns
+  -> ExternalSession + Run integration
 
 Permission/tool hooks
   -> Approval + CapabilityGrant + event log, not arbitrary kernel plugins
 ```
+
+The hand interface is `execute(name, input) -> string`: a name and input go in, a string comes out. The harness does not know whether the sandbox is a container, a phone, or an emulator. This is the Managed Agents primitive and the OpenClaw/Claude Code convergence point. Workflows are *not* here: they live in userland.
 
 ## Defer
 
@@ -52,6 +55,11 @@ voice wake / talk mode
 
 live canvas / A2UI-style visual surface
   Useful control-room surface, not kernel core until API/events stabilize.
+
+workflow DAGs
+  Harness/userland orchestration over subagents and scripts, not a kernel resource.
+  Claude Code ships them as a feature next to subagents and agent teams; provide stable
+  execute/session/wake interfaces and let workflows live in userland.
 ```
 
 ## Reject
