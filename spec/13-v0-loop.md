@@ -13,7 +13,7 @@ local k3s
   -> send message to wren
   -> controller wakes brain pod
   -> brain runs pi SDK with real model
-  -> brain calls bash/read/write through hands pod
+  -> brain calls exec/read/write through hands pod
   -> hands returns result
   -> events are durable
   -> human can message wren directly
@@ -39,7 +39,7 @@ hades-brain-pi
   custom Hades tools
 
 hades-hands-home
-  bash/read/write/edit for one Home PVC
+  exec/read/write/edit for one Home PVC
 
 hades-store
   Postgres event store

@@ -8,7 +8,7 @@
     "homeRef": "demo-home",
     "defaultSession": "demo-default",
     "desiredState": "active",
-    "brain": { "mode": "deterministic" }
+    "brain": { "mode": "test" }
   }
 }
 ---

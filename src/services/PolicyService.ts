@@ -1,26 +1,10 @@
-import type { StateStore } from "./state.js";
-import type { AgentSubject, HadesResource } from "./types.js";
+import { CapabilityError, type PolicyDecision } from "../domain/capabilities.js";
+import type { AgentSubject, HadesResource } from "../domain/resources.js";
+import type { PolicyPort } from "../ports/Policy.js";
+import type { StateStorePort } from "../ports/StateStore.js";
 
-export type PolicyDecision =
-    | { allowed: true; grant: string }
-    | { allowed: false; reason: string };
-
-export class CapabilityError extends Error {
-    decision: PolicyDecision;
-
-    constructor(message: string, decision: PolicyDecision) {
-        super(message);
-        this.name = "CapabilityError";
-        this.decision = decision;
-    }
-}
-
-export class PolicyEngine {
-    state: StateStore;
-
-    constructor(state: StateStore) {
-        this.state = state;
-    }
+export class PolicyService implements PolicyPort {
+    constructor(private readonly state: StateStorePort) {}
 
     grantsFor(subjectKind: string, subjectName: string, namespace: string): HadesResource[] {
         return this.state.list("CapabilityGrant", namespace).filter((grant) => {
@@ -47,5 +31,14 @@ export class PolicyEngine {
             throw new CapabilityError(`Capability denied for ${subject.kind}/${subject.name}: ${reason}`, decision);
         }
         return decision;
+    }
+
+    resolveAgentSubject(subject: Partial<AgentSubject>): AgentSubject {
+        if (subject.kind !== "Agent") throw new Error(`Unsupported subject kind ${subject.kind}`);
+        if (!subject.name) throw new Error("Subject name is required");
+        if (!subject.namespace) throw new Error("Subject namespace is required");
+        const agent = this.state.findByName("Agent", subject.name, subject.namespace);
+        if (!agent) throw new Error(`Subject agent ${subject.namespace}/${subject.name} not found`);
+        return { kind: "Agent", name: subject.name, namespace: subject.namespace };
     }
 }

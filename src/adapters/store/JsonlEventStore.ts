@@ -1,18 +1,11 @@
-import { mkdir, readFile, appendFile, readdir } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
+import type { HadesEvent } from "../../domain/events.js";
+import type { EventStorePort } from "../../ports/EventStore.js";
 
-export type HadesEvent = {
-    id: string;
-    sessionId: string;
-    type: string;
-    createdAt: string;
-    payload: Record<string, any>;
-    [key: string]: any;
-};
-
-export class EventStore {
-    dataDir: string;
-    eventsDir: string;
+export class JsonlEventStore implements EventStorePort {
+    readonly dataDir: string;
+    readonly eventsDir: string;
 
     constructor(dataDir: string) {
         this.dataDir = dataDir;
@@ -39,15 +32,15 @@ export class EventStore {
 
     async list(sessionId: string | undefined = undefined): Promise<HadesEvent[]> {
         await this.init();
-        if (sessionId) return this.readFile(sessionId);
+        if (sessionId) return this.readSessionFile(sessionId);
         const files = await readdir(this.eventsDir).catch(() => []);
         const groups = await Promise.all(
-            files.filter((file) => file.endsWith(".jsonl")).map((file) => this.readFile(file.slice(0, -6))),
+            files.filter((file) => file.endsWith(".jsonl")).map((file) => this.readSessionFile(file.slice(0, -6))),
         );
         return groups.flat().sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
     }
 
-    async readFile(sessionId: string): Promise<HadesEvent[]> {
+    private async readSessionFile(sessionId: string): Promise<HadesEvent[]> {
         const raw = await readFile(this.fileFor(sessionId), "utf8").catch((error: NodeJS.ErrnoException) => {
             if (error.code === "ENOENT") return "";
             throw error;
@@ -55,13 +48,13 @@ export class EventStore {
         return raw.trim() ? raw.trim().split("\n").map((line) => JSON.parse(line)) : [];
     }
 
-    async nextId(sessionId: string): Promise<string> {
-        const events = await this.readFile(sessionId);
+    private async nextId(sessionId: string): Promise<string> {
+        const events = await this.readSessionFile(sessionId);
         const n = events.length + 1;
         return `evt_${String(n).padStart(6, "0")}`;
     }
 
-    fileFor(sessionId: string): string {
+    private fileFor(sessionId: string): string {
         return path.join(this.eventsDir, `${safeName(sessionId)}.jsonl`);
     }
 }

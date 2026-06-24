@@ -20,7 +20,15 @@ SystemAgent  = privileged userland process
 
 ## Current Prototype
 
-The repo contains a TypeScript control-plane prototype that exercises the v0 AgentOS loop locally while keeping Kubernetes resources as the deployable shape.
+The repo contains a TypeScript control-plane prototype that exercises the v0 AgentOS loop locally while keeping Kubernetes resources as the deployable shape. The implementation is intentionally split by responsibility:
+
+```text
+src/domain/      resource, event, and capability types
+src/ports/       interfaces for stores, brain drivers, hands, policy, tools
+src/services/    Agent/Home/Message/Schedule/Policy reconciliation logic
+src/adapters/    JSON/JSONL stores, pi SDK brain, local confined hands, HTTP API
+src/runtime/     local composition root
+```
 
 ```bash
 npm install
@@ -43,12 +51,12 @@ For day-to-day local use from a checkout:
 
 ## Brain Mode
 
-The default brain mode is **pi SDK**. The SDK path registers Hades tools (`hades_read`, `hades_write`, `hades_bash`) that route through Hands; it does not expose pi's local filesystem tools to the brain. In the local prototype, `hades_bash` is deliberately confined to Home-relative executables and rejects absolute paths, `..`, shell metacharacters, executable symlinks, and shell/interpreter shebangs. Real Kubernetes hands should replace this with pod/runtime isolation.
+The default brain mode is **pi SDK**. The SDK path registers Hades tools (`hades_read`, `hades_write`, `hades_exec`) that route through Hands; it does not expose pi's local filesystem tools to the brain. In the local prototype, `hades_exec` is deliberately confined to Home-relative executables and rejects absolute paths, `..`, shell metacharacters, executable symlinks, and shell/interpreter shebangs. Real Kubernetes hands should replace this with pod/runtime isolation.
 
-The generic demo pins `spec.brain.mode: deterministic` so tests and smoke demos run offline without model credentials. You can also force offline mode with:
+The generic demo pins `spec.brain.mode: test` so tests and smoke demos run offline without model credentials. You can also force offline mode with:
 
 ```bash
-HADES_BRAIN_MODE=deterministic ./bin/hades say agent-demo/demo "hello"
+HADES_BRAIN_MODE=test ./bin/hades say agent-demo/demo "hello"
 ```
 
 Wren is an example manifest under `examples/wren/`; the default demo uses `examples/generic/`. Core runtime code does not default to Wren or `agent-wren`.

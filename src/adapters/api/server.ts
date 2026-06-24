@@ -1,7 +1,7 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
-import type { HadesRuntime } from "../core/controllers.js";
+import type { LocalRuntime } from "../../runtime/LocalRuntime.js";
 
-export function createServer(runtime: HadesRuntime): http.Server {
+export function createServer(runtime: LocalRuntime): http.Server {
     return http.createServer(async (req, res) => {
         try {
             const url = new URL(req.url ?? "/", "http://localhost");

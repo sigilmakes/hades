@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { HadesRuntime, loadManifest } from "./core/controllers.js";
-import { dataDirFromEnv } from "./core/state.js";
-import { createServer } from "./api/server.js";
+import { createServer } from "./adapters/api/server.js";
+import { loadManifest } from "./adapters/manifest.js";
+import { dataDirFromEnv } from "./adapters/store/JsonStateStore.js";
+import { createRuntime, type LocalRuntime } from "./runtime/LocalRuntime.js";
 
 const [rawCommand = "help", ...args] = process.argv.slice(2);
 const command = rawCommand === "--help" || rawCommand === "-h" ? "help" : rawCommand;
 const dataDir = dataDirFromEnv();
-let runtimePromise: Promise<HadesRuntime> | undefined;
+let runtimePromise: Promise<LocalRuntime> | undefined;
 
 try {
     if (command === "help") help();
@@ -39,7 +40,7 @@ Commands:
   state                        print resource state
   serve [port]                 start the Hades API server
   demo [manifest] [agent]      run a local loop using a manifest
-                               default uses offline deterministic demo manifest
+                               default uses offline test demo manifest
 
 Message options:
   --namespace <namespace>      namespace for an unqualified agent name
@@ -47,12 +48,12 @@ Message options:
 
 Environment:
   HADES_DATA_DIR               state directory (default ./.hades)
-  HADES_BRAIN_MODE             pi-sdk (default) or deterministic (offline/tests)
+  HADES_BRAIN_MODE             pi-sdk (default) or test (offline/tests)
 `);
 }
 
-async function runtime(): Promise<HadesRuntime> {
-    runtimePromise ??= new HadesRuntime(dataDir).init();
+async function runtime(): Promise<LocalRuntime> {
+    runtimePromise ??= createRuntime(dataDir).init();
     return runtimePromise;
 }
 

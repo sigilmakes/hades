@@ -4,9 +4,10 @@ import { access, chmod, mkdtemp, readFile, symlink, writeFile } from "node:fs/pr
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { HadesRuntime } from "../dist/core/controllers.js";
-import { HandsExecutor, parseConfinedCommand, sanitizedEnv } from "../dist/core/hands.js";
-import { createServer } from "../dist/api/server.js";
+import { createRuntime } from "../dist/runtime/LocalRuntime.js";
+import { LocalConfinedHands, sanitizedEnv } from "../dist/adapters/hands/LocalConfinedHands.js";
+import { parseConfinedExecCommand } from "../dist/adapters/hands/ConfinedCommandParser.js";
+import { createServer } from "../dist/adapters/api/server.js";
 
 const NS = "agent-test";
 const AGENT = "raven";
@@ -15,9 +16,9 @@ const SESSION = "raven-default";
 
 async function runtimeFixture() {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
-    const runtime = await new HadesRuntime(dir).init();
+    const runtime = await createRuntime(dir).init();
     await runtime.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: { layout: { create: ["vault", "bin", "cron.d"] } } });
-    await runtime.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { displayName: "Raven", homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "deterministic" } } });
+    await runtime.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { displayName: "Raven", homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "test" } } });
     await runtime.apply({ kind: "Listener", metadata: { namespace: NS, name: "raven-cli" }, spec: { agentRef: AGENT, platform: "cli" } });
     await runtime.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "self" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["createOwnSchedule"], constraints: { namespace: "own" } } });
     await runtime.reconcile();
@@ -41,7 +42,7 @@ test("pi sdk is the default brain mode", async () => {
     const oldMode = process.env.HADES_BRAIN_MODE;
     delete process.env.HADES_BRAIN_MODE;
     try {
-        assert.equal(runtime.brain.brainMode({ kind: "Agent", metadata: { namespace: NS, name: "default-brain" }, spec: {} }), "pi-sdk");
+        assert.equal(runtime.brain.resolveMode({ kind: "Agent", metadata: { namespace: NS, name: "default-brain" }, spec: {} }), "pi-sdk");
     } finally {
         if (oldMode === undefined) delete process.env.HADES_BRAIN_MODE;
         else process.env.HADES_BRAIN_MODE = oldMode;
@@ -90,11 +91,11 @@ test("createOwnSchedule cannot target another agent", async () => {
     );
 });
 
-test("deterministic schedule directive is policy checked", async () => {
+test("test brain schedule directive is policy checked", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
-    const runtime = await new HadesRuntime(dir).init();
+    const runtime = await createRuntime(dir).init();
     await runtime.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
-    await runtime.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "deterministic" } } });
+    await runtime.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "test" } } });
     await runtime.reconcile();
     await assert.rejects(
         runtime.messageAgent(`${NS}/${AGENT}`, "!schedule bad once 1970-01-01T00:00:00Z :: nope"),
@@ -104,7 +105,7 @@ test("deterministic schedule directive is policy checked", async () => {
 
 test("capability denial is explicit", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
-    const runtime = await new HadesRuntime(dir).init();
+    const runtime = await createRuntime(dir).init();
     await runtime.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
     await runtime.apply({ kind: "Agent", metadata: { namespace: NS, name: "nogrant" }, spec: { homeRef: HOME, defaultSession: "nogrant-default" } });
     await runtime.reconcile();
@@ -119,7 +120,7 @@ test("capability denial is explicit", async () => {
 
 test("home controller rejects bootstrap path escapes", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
-    const runtime = await new HadesRuntime(dir).init();
+    const runtime = await createRuntime(dir).init();
     await runtime.apply({
         kind: "Home",
         metadata: { namespace: "agent-generic", name: "generic-home" },
@@ -130,7 +131,7 @@ test("home controller rejects bootstrap path escapes", async () => {
 
 test("home controller bootstraps generic userland files", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
-    const runtime = await new HadesRuntime(dir).init();
+    const runtime = await createRuntime(dir).init();
     await runtime.apply({
         kind: "Home",
         metadata: { namespace: "agent-generic", name: "generic-home" },
@@ -147,12 +148,12 @@ test("home controller bootstraps generic userland files", async () => {
     assert.equal(await readFile(path.join(home.status.path, "vault/readme.md"), "utf8"), "hello");
 });
 
-test("local hands bash rejects host shell escape syntax", () => {
-    assert.throws(() => parseConfinedCommand("cat /etc/passwd"), /Home-relative executable|Path escapes home/);
-    assert.throws(() => parseConfinedCommand("bin/tool ../outside"), /Path escapes home/);
-    assert.throws(() => parseConfinedCommand("bash -lc 'cat /etc/passwd'"), /Home-relative executable|not allowed/);
-    assert.throws(() => parseConfinedCommand("bin/tool $(cat vault/file)"), /metacharacters/);
-    assert.deepEqual(parseConfinedCommand("bin/tool vault/file"), ["bin/tool", "vault/file"]);
+test("local hands exec rejects host shell escape syntax", () => {
+    assert.throws(() => parseConfinedExecCommand("cat /etc/passwd"), /Home-relative executable|Path escapes home/);
+    assert.throws(() => parseConfinedExecCommand("bin/tool ../outside"), /Path escapes home/);
+    assert.throws(() => parseConfinedExecCommand("bash -lc 'cat /etc/passwd'"), /Home-relative executable|not allowed/);
+    assert.throws(() => parseConfinedExecCommand("bin/tool $(cat vault/file)"), /metacharacters/);
+    assert.deepEqual(parseConfinedExecCommand("bin/tool vault/file"), ["bin/tool", "vault/file"]);
 });
 
 test("hands env does not expose secret-like variables", () => {
@@ -199,32 +200,32 @@ test("cli help does not initialize state", async () => {
 test("hands reject absolute paths even when inside home", async () => {
     const { runtime } = await runtimeFixture();
     const home = runtime.state.findByName("Home", HOME, NS);
-    const hands = new HandsExecutor({ homeRoot: home.status.path });
+    const hands = new LocalConfinedHands({ homeRoot: home.status.path });
     await assert.rejects(hands.read(path.join(home.status.path, "vault/note.md")), /Absolute paths are not allowed/);
     await assert.rejects(hands.write(path.join(home.status.path, "vault/note.md"), "bad"), /Absolute paths are not allowed/);
-    await assert.rejects(hands.bash("bin/tool", home.status.path), /Absolute paths are not allowed/);
+    await assert.rejects(hands.exec({ command: "bin/tool", cwd: home.status.path }), /Absolute paths are not allowed/);
 });
 
 test("hands reject executable symlinks and denied shebangs", async () => {
     const { runtime } = await runtimeFixture();
     const home = runtime.state.findByName("Home", HOME, NS);
-    const hands = new HandsExecutor({ homeRoot: home.status.path });
+    const hands = new LocalConfinedHands({ homeRoot: home.status.path });
     await symlink("/bin/sh", path.join(home.status.path, "bin/shlink"));
-    await assert.rejects(hands.bash("bin/shlink"), /symlinks are not allowed/);
+    await assert.rejects(hands.exec({ command: "bin/shlink" }), /symlinks are not allowed/);
     const shellScript = path.join(home.status.path, "bin/script");
     await writeFile(shellScript, "#!/usr/bin/env bash\necho nope\n", "utf8");
     await chmod(shellScript, 0o755);
-    await assert.rejects(hands.bash("bin/script"), /Shebang interpreter bash is not allowed/);
+    await assert.rejects(hands.exec({ command: "bin/script" }), /Shebang interpreter bash is not allowed/);
     const envScript = path.join(home.status.path, "bin/env-script");
     await writeFile(envScript, "#!/usr/bin/env -S FOO=bar bash\necho nope\n", "utf8");
     await chmod(envScript, 0o755);
-    await assert.rejects(hands.bash("bin/env-script"), /Shebang interpreter bash is not allowed/);
+    await assert.rejects(hands.exec({ command: "bin/env-script" }), /Shebang interpreter bash is not allowed/);
 });
 
 test("hands prevent path escape", async () => {
     const { runtime } = await runtimeFixture();
     const home = runtime.state.findByName("Home", HOME, NS);
-    const hands = new HandsExecutor({ homeRoot: home.status.path });
+    const hands = new LocalConfinedHands({ homeRoot: home.status.path });
     await assert.rejects(hands.write("../escape", "bad"), /Path escapes home/);
     await assert.rejects(hands.write(`../${path.basename(home.status.path)}-sibling/file`, "bad"), /Path escapes home/);
 });
