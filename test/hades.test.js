@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { access, chmod, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { access, chmod, mkdtemp, readdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -13,6 +13,11 @@ const NS = "agent-test";
 const AGENT = "raven";
 const HOME = "raven-home";
 const SESSION = "raven-default";
+
+test("build output does not retain removed core or api modules", async () => {
+    await assert.rejects(readdir(path.resolve("dist/core")), /ENOENT/);
+    await assert.rejects(readdir(path.resolve("dist/api")), /ENOENT/);
+});
 
 async function runtimeFixture() {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
