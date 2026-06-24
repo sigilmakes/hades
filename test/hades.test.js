@@ -187,6 +187,22 @@ test("concurrent reconciles do not double-fire a matching cron schedule", async 
     assert.equal(fired, 1, "a matching minute must fire exactly once even under concurrent reconcile");
 });
 
+test("a transient delivery failure records schedule.failed without invalidating the schedule", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
+    const runtime = await createRuntime(dir).init();
+    await runtime.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
+    await runtime.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "test" } } });
+    await runtime.reconcile();
+    // schedule points at an agent that does not exist -> fireSchedule throws a config error,
+    // but that is a delivery-time failure, not a parse error, so the schedule must not be invalidated
+    await runtime.apply({ kind: "Schedule", metadata: { namespace: NS, name: "ghost-target" }, spec: { agentRef: "ghost", type: "once", schedule: "1970-01-01T00:00:00Z", session: SESSION, prompt: "nope" } });
+    await runtime.reconcile();
+    const sys = await runtime.events.list("system");
+    assert.ok(sys.some((e) => e.type === "schedule.failed" && e.payload.schedule === "ghost-target"), "delivery failure recorded");
+    const sched = runtime.state.findByName("Schedule", "ghost-target", NS);
+    assert.notEqual(sched.status.phase, "invalid", "transient delivery failure must not invalidate the schedule");
+});
+
 test("createOwnSchedule requires concrete existing subject and session", async () => {
     const { runtime } = await runtimeFixture();
     await assert.rejects(
