@@ -8,6 +8,12 @@ export function isPrimitiveDecision(value: string): value is PrimitiveDecision {
     return (PRIMITIVE_DECISIONS as readonly string[]).includes(value);
 }
 
+export function parsePrimitiveDecision(value: string | undefined): PrimitiveDecision | undefined {
+    if (!value) return undefined;
+    if (isPrimitiveDecision(value)) return value;
+    throw new Error(`Unknown primitive decision ${value}`);
+}
+
 export type AgentOSPrimitive = {
     readonly id: string;
     readonly name: string;

@@ -1,5 +1,5 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
-import { isPrimitiveDecision } from "../../domain/primitives.js";
+import { parsePrimitiveDecision } from "../../domain/primitives.js";
 import type { LocalRuntime } from "../../runtime/LocalRuntime.js";
 
 export function createServer(runtime: LocalRuntime): http.Server {
@@ -12,11 +12,13 @@ export function createServer(runtime: LocalRuntime): http.Server {
             if (req.method === "GET" && url.pathname === "/hades/v1/events") return json(res, await runtime.events.list(url.searchParams.get("session") ?? undefined));
             if (req.method === "GET" && url.pathname === "/hades/v1/state") return json(res, await runtime.snapshot());
             if (req.method === "GET" && url.pathname === "/hades/v1/primitives") {
-                const decision = url.searchParams.get("decision") ?? undefined;
-                if (decision && !isPrimitiveDecision(decision)) {
-                    return json(res, { error: `Unknown primitive decision ${decision}` }, 400);
+                const rawDecision = url.searchParams.get("decision") ?? undefined;
+                try {
+                    return json(res, runtime.primitives.list(parsePrimitiveDecision(rawDecision)));
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    return json(res, { error: message }, 400);
                 }
-                return json(res, runtime.primitives.list(decision as any));
             }
             if (req.method === "POST" && url.pathname === "/hades/v1/reconcile") {
                 await runtime.reconcile();

@@ -29,6 +29,7 @@ test("package metadata builds cli package from dist", async () => {
 
 test("primitive catalog adopts useful surfaces and rejects noise", () => {
     const byId = new Map(PRIMITIVES.map((primitive) => [primitive.id, primitive]));
+    assert.equal(byId.size, PRIMITIVES.length);
     assert.equal(byId.get("mcp.brokered-tools")?.decision, "adopt");
     assert.equal(byId.get("acp.external-sessions")?.decision, "adopt");
     assert.equal(byId.get("gateway.nodes")?.decision, "adopt");
@@ -37,6 +38,8 @@ test("primitive catalog adopts useful surfaces and rejects noise", () => {
     assert.equal(Object.isFrozen(PRIMITIVES), true);
     assert.equal(Object.isFrozen(byId.get("mcp.brokered-tools")), true);
     assert.equal(Object.isFrozen(byId.get("mcp.brokered-tools")?.mapsToKinds), true);
+    assert.equal(Object.isFrozen(byId.get("linux.capabilities-seccomp")?.sources), true);
+    assert.equal(Object.isFrozen(byId.get("linux.capabilities-seccomp")?.relatedConcepts), true);
 });
 
 async function runtimeFixture() {
