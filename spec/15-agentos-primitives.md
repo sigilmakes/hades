@@ -81,7 +81,7 @@ SandboxProfile
 SecretLease
 ```
 
-A resource kind is a public API promise. Hades should not ossify speculative nouns just because the ontology can name them. Keep candidates in the primitive catalog/spec until there is a controller, syscall, status contract, or meaningful projection to own.
+A resource kind is a public API promise. Hades should not ossify speculative nouns just because the ontology can name them. Keep candidates in the primitive catalog/spec with `implementation: "future"` until there is a controller, syscall, status contract, or meaningful projection to own.
 
 ## Gateway Model
 

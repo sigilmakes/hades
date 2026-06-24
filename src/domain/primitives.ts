@@ -1,6 +1,12 @@
 export type PrimitiveDecision = "adopt" | "defer" | "reject";
 export type PrimitiveLayer = "kernel" | "sandbox" | "gateway" | "tooling" | "workflow" | "interop" | "ux";
-export type PrimitiveImplementation = "runtime" | "resource" | "spec" | "future" | "never";
+export type PrimitiveImplementation = "runtime" | "spec" | "future" | "never";
+
+export const PRIMITIVE_DECISIONS = ["adopt", "defer", "reject"] as const;
+
+export function isPrimitiveDecision(value: string): value is PrimitiveDecision {
+    return (PRIMITIVE_DECISIONS as readonly string[]).includes(value);
+}
 
 export type AgentOSPrimitive = {
     id: string;
@@ -20,7 +26,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         name: "Linux namespaces",
         layer: "sandbox",
         decision: "adopt",
-        implementation: "resource",
+        implementation: "future",
         why: "PID, mount, user, network, IPC, and UTS boundaries are the correct substrate for Hands isolation; agents should request sandbox profiles, not raw namespace operations.",
         mapsToKinds: ["SandboxProfile", "Hands"],
         sources: ["Linux", "Kubernetes pods", "OpenClaw sandboxing"],
@@ -30,7 +36,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         name: "cgroups resource control",
         layer: "sandbox",
         decision: "adopt",
-        implementation: "resource",
+        implementation: "future",
         why: "Hands and brain runtimes need explicit CPU, memory, process, and IO budgets to avoid noisy-neighbor failure and runaway tool loops.",
         mapsToKinds: ["SandboxProfile", "Hands", "BrainBinding"],
         sources: ["Linux", "Kubernetes resources"],
@@ -40,7 +46,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         name: "Linux capabilities and seccomp",
         layer: "sandbox",
         decision: "adopt",
-        implementation: "resource",
+        implementation: "future",
         why: "Tool sandboxes should drop ambient host powers and block unneeded syscalls. This belongs in sandbox profiles, not model-visible tools.",
         mapsToKinds: ["SandboxProfile"],
         relatedConcepts: ["Kubernetes securityContext"],
@@ -101,7 +107,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         name: "Paired device nodes",
         layer: "gateway",
         decision: "adopt",
-        implementation: "resource",
+        implementation: "future",
         why: "Voice, camera, canvas, location, and push surfaces belong on paired nodes with declared capabilities, not inside brain/hands pods.",
         mapsToKinds: ["Node", "Gateway", "CapabilityGrant"],
         sources: ["OpenClaw nodes", "OpenClaw device pairing"],
@@ -132,7 +138,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         name: "Brokered MCP tool providers",
         layer: "tooling",
         decision: "adopt",
-        implementation: "resource",
+        implementation: "future",
         why: "MCP should be discovered, filtered, cooled down, and audited through a broker. Attaching every MCP server to every agent pod is credential and policy sprawl.",
         mapsToKinds: ["ToolProvider", "CapabilityGrant", "Run"],
         sources: ["MCP", "ACP MCP-over-ACP", "OpenClaw bundle-mcp policy"],
@@ -142,7 +148,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         name: "ACP external harness sessions",
         layer: "interop",
         decision: "adopt",
-        implementation: "resource",
+        implementation: "future",
         why: "ACP/acpx is the right bridge to Claude Code, Codex, OpenClaw, Gemini, and other harnesses. Hades should track external sessions explicitly rather than scrape PTYs.",
         mapsToKinds: ["ExternalSession", "Workflow", "Run"],
         sources: ["ACP", "acpx", "OpenClaw ACP agents"],
@@ -152,7 +158,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         name: "Dynamic workflow DAGs",
         layer: "workflow",
         decision: "adopt",
-        implementation: "resource",
+        implementation: "future",
         why: "Some orchestration should be deterministic and inspectable outside model turns: parallel research, review/fix loops, build/test/deploy chains.",
         mapsToKinds: ["Workflow", "Run", "Approval"],
         sources: ["acpx flows", "Claude Agent SDK research agents", "Linux job control"],

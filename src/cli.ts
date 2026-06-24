@@ -4,6 +4,7 @@ import path from "node:path";
 import { createServer } from "./adapters/api/server.js";
 import { loadManifest } from "./adapters/manifest.js";
 import { dataDirFromEnv } from "./adapters/store/JsonStateStore.js";
+import { isPrimitiveDecision } from "./domain/primitives.js";
 import { createRuntime, type LocalRuntime } from "./runtime/LocalRuntime.js";
 import { PrimitiveService } from "./services/PrimitiveService.js";
 
@@ -97,7 +98,7 @@ async function events(session: string | undefined): Promise<void> {
 }
 
 async function primitives(decision: string | undefined): Promise<void> {
-    if (decision && !["adopt", "defer", "reject"].includes(decision)) throw new Error(`Unknown primitive decision ${decision}`);
+    if (decision && !isPrimitiveDecision(decision)) throw new Error(`Unknown primitive decision ${decision}`);
     const rows = new PrimitiveService().list(decision as any);
     console.log(JSON.stringify(rows, null, 4));
 }

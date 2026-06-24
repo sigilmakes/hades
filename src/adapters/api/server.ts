@@ -1,4 +1,5 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
+import { isPrimitiveDecision } from "../../domain/primitives.js";
 import type { LocalRuntime } from "../../runtime/LocalRuntime.js";
 
 export function createServer(runtime: LocalRuntime): http.Server {
@@ -12,7 +13,7 @@ export function createServer(runtime: LocalRuntime): http.Server {
             if (req.method === "GET" && url.pathname === "/hades/v1/state") return json(res, await runtime.snapshot());
             if (req.method === "GET" && url.pathname === "/hades/v1/primitives") {
                 const decision = url.searchParams.get("decision") ?? undefined;
-                if (decision && !["adopt", "defer", "reject"].includes(decision)) {
+                if (decision && !isPrimitiveDecision(decision)) {
                     return json(res, { error: `Unknown primitive decision ${decision}` }, 400);
                 }
                 return json(res, runtime.primitives.list(decision as any));
