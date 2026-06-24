@@ -207,6 +207,9 @@ test("API exposes agents, primitives, and message endpoint", async () => {
     try {
         const agents = await fetch(`http://127.0.0.1:${port}/hades/v1/agents`).then((res) => res.json());
         assert.equal(agents[0].metadata.name, AGENT);
+        const allPrimitives = await fetch(`http://127.0.0.1:${port}/hades/v1/primitives`).then((res) => res.json());
+        assert.ok(allPrimitives.some((primitive) => primitive.decision === "adopt"));
+        assert.ok(allPrimitives.some((primitive) => primitive.decision === "reject"));
         const primitives = await fetch(`http://127.0.0.1:${port}/hades/v1/primitives?decision=adopt`).then((res) => res.json());
         assert.ok(primitives.some((primitive) => primitive.id === "workflow.dag"));
         assert.ok(primitives.every((primitive) => primitive.decision === "adopt"));
@@ -245,6 +248,9 @@ test("cli primitives lists adopted primitives without initializing state", async
     assert.ok(primitives.some((primitive) => primitive.id === "mcp.brokered-tools"));
     assert.ok(primitives.every((primitive) => primitive.decision === "adopt"));
     await assert.rejects(access(path.join(cwd, ".hades")), /ENOENT/);
+    const invalid = spawnSync(process.execPath, [path.resolve("dist/cli.js"), "primitives", "garbage"], { cwd, encoding: "utf8" });
+    assert.notEqual(invalid.status, 0);
+    assert.match(invalid.stderr, /Unknown primitive decision garbage/);
 });
 
 test("unqualified agent names are rejected when ambiguous", async () => {

@@ -14,9 +14,4 @@ export class PrimitiveService {
             }));
     }
 
-    get(id: string): AgentOSPrimitive {
-        const primitive = PRIMITIVES.find((item) => item.id === id);
-        if (!primitive) throw new Error(`Primitive ${id} not found`);
-        return primitive;
-    }
 }
