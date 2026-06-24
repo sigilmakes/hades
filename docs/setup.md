@@ -85,6 +85,16 @@ $HADES_DATA_DIR/
 └── homes/<ns>/<home>/    # agent userland (vault/, bin/, cron.d/, …)
 ```
 
+## Spawning throwaway agents
+
+A resident agent with the `spawnAgent` capability can mint an ephemeral worker for one task:
+
+```bash
+./bin/hades say agent-demo/demo "!spawn helper do a small task"
+```
+
+The worker is created as an `ephemeral` agent, run once, then reaped (`phase: completed`). Without the grant, the spawn is denied. Ephemeral workers get no capabilities by default; the spawner may grant a narrow subset.
+
 ## What is not here yet
 
 - Real platform listener bridges (Discord/Matrix/email)

@@ -17,6 +17,8 @@ export class AgentService {
     async reconcileAgent(agent: HadesResource): Promise<void> {
         const namespace = namespaceOf(agent);
         const agentName = nameOf(agent);
+        // Ephemeral agents are reaped after their one-shot run; do not re-activate them.
+        if (agent.spec?.lifecycle === "ephemeral" && agent.status?.phase === "completed") return;
         const sessionName = agent.spec?.defaultSession ?? `${agentName}-default`;
         if (!this.state.findByName("Session", sessionName, namespace)) {
             await this.state.apply({

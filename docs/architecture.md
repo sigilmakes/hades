@@ -63,6 +63,11 @@ Kubernetes target:
 
 The local prototype is **not a toy** — it is the same kernel with its workloads in-process. Code written against the kernel interfaces (services, ports) does not change when the workloads become pods. The ports exist precisely so `LocalConfinedHands` (in-process) and a future `ContainerHands` (pod) are the same interface with different policy.
 
+## Syscalls that are real today
+
+- `os.createSchedule` — policy-checked; resident agents set their own timers.
+- `os.spawnAgent` — policy-checked; a resident agent mints a confined ephemeral worker for one task, the kernel reaps it after. This is the daemon-forks-a-transient-unit primitive, now behavior not just prose.
+
 ## What is NOT here (honest gaps)
 
 - **Real model run**: the brain's pi-SDK path is wired but only exercised by an offline test brain. Running a real model depends on your environment's providers/keys; there is no bundled "clean" model path. See `docs/setup.md`.

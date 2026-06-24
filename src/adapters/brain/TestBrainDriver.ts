@@ -4,6 +4,8 @@ import type { EventStorePort } from "../../ports/EventStore.js";
 import type { HandsBackend } from "../../ports/HandsBackend.js";
 import type { ScheduleService } from "../../services/ScheduleService.js";
 
+export type SpawnCallback = (subject: { kind: "Agent"; name: string; namespace: string }, spec: Record<string, any>) => Promise<{ agent: HadesResource; reply: string }>;
+
 export class TestBrainDriver implements BrainDriver {
     readonly mode = "test";
 
@@ -11,6 +13,7 @@ export class TestBrainDriver implements BrainDriver {
         private readonly events: EventStorePort,
         private readonly handsFor: (agent: HadesResource, session: HadesResource) => HandsBackend,
         private readonly schedules: ScheduleService,
+        private readonly spawn?: SpawnCallback,
     ) {}
 
     async run({ agent, session, prompt }: BrainRunInput): Promise<string> {
@@ -33,6 +36,8 @@ export class TestBrainDriver implements BrainDriver {
                 reply = result.stdout || result.stderr || `exit ${result.code}`;
             } else if (trimmed.startsWith("!schedule ")) {
                 reply = await this.createScheduleFromDirective(agent, session, trimmed);
+            } else if (trimmed.startsWith("!spawn ")) {
+                reply = await this.spawnFromDirective(agent, trimmed);
             } else if (trimmed.startsWith("!")) {
                 throw new Error(`Unsupported test brain directive: ${trimmed.split(/\s+/, 1)[0]}`);
             } else {
@@ -58,5 +63,17 @@ export class TestBrainDriver implements BrainDriver {
             { name, agentRef: nameOf(agent), type, schedule: schedule.trim(), session: nameOf(session), prompt },
         );
         return `created schedule ${name}`;
+    }
+
+    private async spawnFromDirective(agent: HadesResource, directive: string): Promise<string> {
+        if (!this.spawn) throw new Error("spawn is not configured for this brain");
+        const match = directive.match(/^!spawn\s+(\S+)\s+([\s\S]+)$/);
+        if (!match) throw new Error("spawn directive format: !spawn <name> <prompt>");
+        const [, name, prompt] = match;
+        const result = await this.spawn(
+            { kind: "Agent", name: nameOf(agent), namespace: namespaceOf(agent) },
+            { name, prompt },
+        );
+        return `spawned ${name}: ${result.reply}`;
     }
 }

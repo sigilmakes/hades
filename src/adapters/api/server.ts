@@ -36,6 +36,9 @@ export function createServer(runtime: LocalRuntime): http.Server {
             if (req.method === "POST" && url.pathname === "/hades/v1/syscalls/schedules") {
                 return json(res, await runtime.createSchedule(body.subject, body.spec));
             }
+            if (req.method === "POST" && url.pathname === "/hades/v1/syscalls/spawn-agent") {
+                return json(res, await runtime.spawnAgent(body.subject, body.spec));
+            }
             return json(res, { error: "not found" }, 404);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);

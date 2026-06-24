@@ -203,6 +203,51 @@ test("a transient delivery failure records schedule.failed without invalidating 
     assert.notEqual(sched.status.phase, "invalid", "transient delivery failure must not invalidate the schedule");
 });
 
+test("a resident agent with the spawnAgent capability can spawn a throwaway ephemeral worker", async () => {
+    const { runtime } = await runtimeFixture();
+    await runtime.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "spawn-grant" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["spawnAgent"], constraints: { namespace: "own" } } });
+    const result = await runtime.spawnAgent(
+        { kind: "Agent", name: AGENT, namespace: NS },
+        { name: "worker-1", prompt: "!write scratch/out <<<done then read it", capabilities: [] },
+    );
+    assert.match(result.reply, /received:|wrote/, "ephemeral worker ran and replied");
+    const worker = runtime.state.findByName("Agent", "worker-1", NS);
+    assert.ok(worker, "ephemeral agent resource exists");
+    assert.equal(worker.spec.lifecycle, "ephemeral");
+    assert.equal(worker.status.phase, "completed", "ephemeral agent is reaped after one run");
+    const sys = await runtime.events.list("system");
+    assert.ok(sys.some((e) => e.type === "agent.spawned" && e.payload.agent === "worker-1"));
+    assert.ok(sys.some((e) => e.type === "agent.reaped" && e.payload.agent === "worker-1"));
+});
+
+test("spawnAgent is denied without the capability", async () => {
+    const { runtime } = await runtimeFixture();
+    await assert.rejects(
+        runtime.spawnAgent({ kind: "Agent", name: AGENT, namespace: NS }, { name: "nope", prompt: "x" }),
+        /Capability denied/,
+    );
+    assert.equal(runtime.state.findByName("Agent", "nope", NS), undefined, "denied spawn must not create an agent");
+});
+
+test("spawnAgent cannot target another namespace", async () => {
+    const { runtime } = await runtimeFixture();
+    await runtime.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "spawn-grant" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["spawnAgent"], constraints: { namespace: "own" } } });
+    await assert.rejects(
+        runtime.spawnAgent({ kind: "Agent", name: AGENT, namespace: NS }, { name: "cross", namespace: "other", prompt: "x" }),
+        /cannot target another namespace/,
+    );
+});
+
+test("a resident agent can spawn an ephemeral worker via the !spawn directive", async () => {
+    const { runtime } = await runtimeFixture();
+    await runtime.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "spawn-grant" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["spawnAgent"], constraints: { namespace: "own" } } });
+    const { reply } = await runtime.messageAgent(`${NS}/${AGENT}`, "!spawn helper do a small task");
+    assert.match(reply, /spawned helper/);
+    const helper = runtime.state.findByName("Agent", "helper", NS);
+    assert.equal(helper.spec.lifecycle, "ephemeral");
+    assert.equal(helper.status.phase, "completed");
+});
+
 test("createOwnSchedule requires concrete existing subject and session", async () => {
     const { runtime } = await runtimeFixture();
     await assert.rejects(
