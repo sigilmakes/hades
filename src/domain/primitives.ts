@@ -9,7 +9,8 @@ export type AgentOSPrimitive = {
     decision: PrimitiveDecision;
     implementation: PrimitiveImplementation;
     why: string;
-    mapsTo: string[];
+    mapsToKinds: string[];
+    relatedConcepts?: string[];
     sources: string[];
 };
 
@@ -21,7 +22,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         decision: "adopt",
         implementation: "resource",
         why: "PID, mount, user, network, IPC, and UTS boundaries are the correct substrate for Hands isolation; agents should request sandbox profiles, not raw namespace operations.",
-        mapsTo: ["SandboxProfile", "Hands"],
+        mapsToKinds: ["SandboxProfile", "Hands"],
         sources: ["Linux", "Kubernetes pods", "OpenClaw sandboxing"],
     },
     {
@@ -31,7 +32,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         decision: "adopt",
         implementation: "resource",
         why: "Hands and brain runtimes need explicit CPU, memory, process, and IO budgets to avoid noisy-neighbor failure and runaway tool loops.",
-        mapsTo: ["SandboxProfile", "Hands", "BrainBinding"],
+        mapsToKinds: ["SandboxProfile", "Hands", "BrainBinding"],
         sources: ["Linux", "Kubernetes resources"],
     },
     {
@@ -41,7 +42,8 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         decision: "adopt",
         implementation: "resource",
         why: "Tool sandboxes should drop ambient host powers and block unneeded syscalls. This belongs in sandbox profiles, not model-visible tools.",
-        mapsTo: ["SandboxProfile", "SecurityContext"],
+        mapsToKinds: ["SandboxProfile"],
+        relatedConcepts: ["Kubernetes securityContext"],
         sources: ["Linux", "Kubernetes securityContext"],
     },
     {
@@ -51,7 +53,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         decision: "adopt",
         implementation: "runtime",
         why: "Home, workspace, scratch, and secret projections are the concrete filesystem primitives for agent userland. Mount policy must prevent symlink/bind escape.",
-        mapsTo: ["Home", "Hands", "SecretLease"],
+        mapsToKinds: ["Home", "Hands", "SecretLease"],
         sources: ["Linux", "Kubernetes PVC/projected volumes", "OpenClaw bind validation"],
     },
     {
@@ -61,7 +63,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         decision: "adopt",
         implementation: "runtime",
         why: "Schedules are core autonomy. Hades should own semantic schedules and may compile to Kubernetes CronJobs later.",
-        mapsTo: ["Schedule"],
+        mapsToKinds: ["Schedule"],
         sources: ["cron", "systemd timers", "Kubernetes CronJob", "OpenClaw cron"],
     },
     {
@@ -71,7 +73,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         decision: "defer",
         implementation: "future",
         why: "Useful for Home/project indexing and reactive workflows, but not required for the first reliable agent loop.",
-        mapsTo: ["Home", "Workflow"],
+        mapsToKinds: ["Home", "Workflow"],
         sources: ["Linux inotify/fanotify"],
     },
     {
@@ -81,7 +83,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         decision: "adopt",
         implementation: "future",
         why: "Humans need controlled live attachment to Hands and long-running jobs, but agents should use structured exec APIs first.",
-        mapsTo: ["Hands", "Run"],
+        mapsToKinds: ["Hands", "Run"],
         sources: ["terminal", "tmux", "Kubernetes exec/attach"],
     },
     {
@@ -91,7 +93,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         decision: "adopt",
         implementation: "runtime",
         why: "OpenClaw validates a single Gateway daemon owning many channels, but Hades needs listener attachment per agent/session to avoid Wren hardcoding.",
-        mapsTo: ["Gateway", "Listener"],
+        mapsToKinds: ["Gateway", "Listener"],
         sources: ["OpenClaw Gateway", "Hades Listener model"],
     },
     {
@@ -101,7 +103,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         decision: "adopt",
         implementation: "resource",
         why: "Voice, camera, canvas, location, and push surfaces belong on paired nodes with declared capabilities, not inside brain/hands pods.",
-        mapsTo: ["Node", "Gateway", "CapabilityGrant"],
+        mapsToKinds: ["Node", "Gateway", "CapabilityGrant"],
         sources: ["OpenClaw nodes", "OpenClaw device pairing"],
     },
     {
@@ -111,7 +113,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         decision: "defer",
         implementation: "future",
         why: "Voice is valuable for resident agents, but it is an edge node capability. The kernel only needs the node/gateway event contract first.",
-        mapsTo: ["Node", "Listener"],
+        mapsToKinds: ["Node", "Listener"],
         sources: ["OpenClaw Voice Wake", "OpenClaw Talk Mode"],
     },
     {
@@ -121,7 +123,8 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         decision: "defer",
         implementation: "future",
         why: "Useful for rich control rooms and agent-made views, but not a kernel primitive until API/event contracts stabilize.",
-        mapsTo: ["Node", "Gateway", "Artifact"],
+        mapsToKinds: ["Node", "Gateway"],
+        relatedConcepts: ["Artifact"],
         sources: ["OpenClaw Canvas", "A2UI"],
     },
     {
@@ -131,7 +134,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         decision: "adopt",
         implementation: "resource",
         why: "MCP should be discovered, filtered, cooled down, and audited through a broker. Attaching every MCP server to every agent pod is credential and policy sprawl.",
-        mapsTo: ["ToolProvider", "CapabilityGrant", "Run"],
+        mapsToKinds: ["ToolProvider", "CapabilityGrant", "Run"],
         sources: ["MCP", "ACP MCP-over-ACP", "OpenClaw bundle-mcp policy"],
     },
     {
@@ -141,7 +144,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         decision: "adopt",
         implementation: "resource",
         why: "ACP/acpx is the right bridge to Claude Code, Codex, OpenClaw, Gemini, and other harnesses. Hades should track external sessions explicitly rather than scrape PTYs.",
-        mapsTo: ["ExternalSession", "Workflow", "Run"],
+        mapsToKinds: ["ExternalSession", "Workflow", "Run"],
         sources: ["ACP", "acpx", "OpenClaw ACP agents"],
     },
     {
@@ -151,7 +154,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         decision: "adopt",
         implementation: "resource",
         why: "Some orchestration should be deterministic and inspectable outside model turns: parallel research, review/fix loops, build/test/deploy chains.",
-        mapsTo: ["Workflow", "Run", "Approval"],
+        mapsToKinds: ["Workflow", "Run", "Approval"],
         sources: ["acpx flows", "Claude Agent SDK research agents", "Linux job control"],
     },
     {
@@ -161,7 +164,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         decision: "adopt",
         implementation: "future",
         why: "Claude Agent SDK and OpenClaw show hooks are useful, but Hades should express them as policy/approval events rather than arbitrary plugin code in the kernel.",
-        mapsTo: ["Approval", "CapabilityGrant", "Run"],
+        mapsToKinds: ["Approval", "CapabilityGrant", "Run"],
         sources: ["Claude Agent SDK hooks", "OpenClaw permission hooks"],
     },
     {
@@ -171,7 +174,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         decision: "reject",
         implementation: "never",
         why: "Desktop integration is useful, but raw D-Bus is too broad. Expose narrow node/gateway commands instead.",
-        mapsTo: ["Node"],
+        mapsToKinds: ["Node"],
         sources: ["Linux D-Bus"],
     },
     {
@@ -181,7 +184,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         decision: "reject",
         implementation: "never",
         why: "ptrace is a sandbox escape hazard. Debugging should happen through explicit profiles and human-approved hands, not default agent capabilities.",
-        mapsTo: ["SandboxProfile"],
+        mapsToKinds: ["SandboxProfile"],
         sources: ["Linux ptrace", "seccomp"],
     },
     {
@@ -191,7 +194,7 @@ export const PRIMITIVES: AgentOSPrimitive[] = [
         decision: "reject",
         implementation: "never",
         why: "One MCP sidecar per server per agent spreads credentials and makes dynamic tool policy/cooldown difficult. Use brokered ToolProviders.",
-        mapsTo: ["ToolProvider"],
+        mapsToKinds: ["ToolProvider"],
         sources: ["MCP", "ACP MCP-over-ACP"],
     },
 ];

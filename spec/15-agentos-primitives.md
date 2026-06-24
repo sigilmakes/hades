@@ -67,9 +67,9 @@ per-agent MCP sidecar sprawl
   Credential and policy sprawl. Use brokered ToolProviders.
 ```
 
-## Resource Surface
+## Candidate Resource Surface
 
-The v0 runtime recognizes these future-facing resource kinds so manifests and projections can name them without fake controllers:
+These are likely future resource kinds, but v0 does **not** promote them to CRDs or state-visible kinds until behavior exists:
 
 ```text
 Gateway
@@ -81,7 +81,7 @@ SandboxProfile
 SecretLease
 ```
 
-Recognition does not imply behavior. A resource kind becoming state-visible is a contract that Hades can store and inspect it; controllers are added only when there is real behavior to reconcile.
+A resource kind is a public API promise. Hades should not ossify speculative nouns just because the ontology can name them. Keep candidates in the primitive catalog/spec until there is a controller, syscall, status contract, or meaningful projection to own.
 
 ## Gateway Model
 

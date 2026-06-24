@@ -36,13 +36,6 @@ export const KINDS = [
     "Run",
     "Approval",
     "CapabilityGrant",
-    "Gateway",
-    "Node",
-    "ToolProvider",
-    "Workflow",
-    "ExternalSession",
-    "SandboxProfile",
-    "SecretLease",
 ] as const;
 
 export type HadesKind = typeof KINDS[number];

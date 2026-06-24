@@ -207,6 +207,8 @@ test("API exposes agents, primitives, and message endpoint", async () => {
         const primitives = await fetch(`http://127.0.0.1:${port}/hades/v1/primitives?decision=adopt`).then((res) => res.json());
         assert.ok(primitives.some((primitive) => primitive.id === "workflow.dag"));
         assert.ok(primitives.every((primitive) => primitive.decision === "adopt"));
+        const invalidPrimitiveResponse = await fetch(`http://127.0.0.1:${port}/hades/v1/primitives?decision=garbage`);
+        assert.equal(invalidPrimitiveResponse.status, 400);
         const response = await fetch(`http://127.0.0.1:${port}/hades/v1/agents/${AGENT}/message`, {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -218,15 +220,13 @@ test("API exposes agents, primitives, and message endpoint", async () => {
     }
 });
 
-test("future primitive resource kinds are state-visible without fake controllers", async () => {
+test("candidate primitive resources are not accepted before behavior exists", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
     const runtime = await createRuntime(dir).init();
-    await runtime.apply({ kind: "Gateway", metadata: { namespace: "hades-system", name: "local" }, spec: { transport: "websocket" } });
-    await runtime.apply({ kind: "ToolProvider", metadata: { namespace: NS, name: "mcp-broker" }, spec: { protocol: "mcp", mode: "brokered" } });
-    await runtime.apply({ kind: "Workflow", metadata: { namespace: NS, name: "review-loop" }, spec: { steps: [] } });
-    assert.equal(runtime.state.findByName("Gateway", "local", "hades-system").spec.transport, "websocket");
-    assert.equal(runtime.state.findByName("ToolProvider", "mcp-broker", NS).spec.mode, "brokered");
-    assert.equal(runtime.state.findByName("Workflow", "review-loop", NS).spec.steps.length, 0);
+    await assert.rejects(
+        runtime.apply({ kind: "Gateway", metadata: { namespace: "hades-system", name: "local" }, spec: { transport: "websocket" } }),
+        /Unsupported kind Gateway/,
+    );
 });
 
 test("cli primitives lists adopted primitives without initializing state", async () => {
