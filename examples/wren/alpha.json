@@ -18,10 +18,7 @@
     "classRef": "resident-pi",
     "homeRef": "wren-home",
     "defaultSession": "wren-default",
-    "desiredState": "active",
-    "modelPolicy": {
-      "default": "ollama-cloud/qwen3-coder"
-    }
+    "desiredState": "active"
   }
 }
 ---

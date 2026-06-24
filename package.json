@@ -32,6 +32,7 @@
     "deploy/",
     "examples/",
     "spec/",
+    "docs/",
     "README.md"
   ]
 }

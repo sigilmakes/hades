@@ -1,42 +1,25 @@
 # Hades
 
-Hades is a Kubernetes-native **agent operating system**: a minimal control plane for running long-lived AI agents as addressable, inspectable, restartable compute.
+Hades is a **monolithic agent kernel**: one privileged supervisor with internal subsystems, supervising squishy agent workloads. Think Linux, not a microkernel.
 
-The design center is not "an agent in a pod." It is an OS model:
+There is one kernel and two kinds of agents, just like a Linux box has daemons and throwaway processes:
 
-```text
-Agent        = process / user
-Home         = persistent filesystem
-Session      = durable event log
-Brain        = model + harness loop, via pi SDK
-Hands        = disposable sandbox/tool environment
-Listener     = terminal / device / bridge
-Schedule     = cron timer
-Tool         = syscall / capability
-Capability   = permission
-Controller   = kernel daemon
-SystemAgent  = privileged userland process
-```
+- **Resident agents** — long-running, privileged, trusted daemons with durable state. Wren is one.
+- **Ephemeral agents** — short-lived, confined, spawned for one task and reaped after.
 
-## Current Prototype
+The kernel owns the boring, precious things: scheduling, the durable session/event logs, agent Homes, and the capability/permission system. Everything an agent needs to *do* (think, run code, talk to a channel) is a squishy workload the kernel spins up and reaps — brains, hands, gateways. Crash is not a disaster: the kernel re-wakes a brain from its durable log.
 
-The repo contains a TypeScript control-plane prototype that exercises the v0 AgentOS loop locally while keeping Kubernetes resources as the deployable shape. The implementation is intentionally split by responsibility:
+> **Status:** a coherent, tested **kernel** with the right invariants and a runnable single-process shape — **not** a deployed multi-tenant platform. Real platform listeners, Kubernetes controllers, and a real store are adapters behind ports that already exist. See `docs/architecture.md`.
 
-```text
-src/domain/      resource, event, and capability types
-src/ports/       interfaces for stores, brain drivers, hands, policy, tools
-src/services/    Agent/Home/Message/Schedule/Policy reconciliation logic
-src/adapters/    JSON/JSONL stores, pi SDK brain, local confined hands, HTTP API
-src/runtime/     local composition root
-```
+## Quickstart
 
 ```bash
 npm install
-npm test
-./bin/hades demo
+npm test              # 31 tests, offline
+./bin/hades demo      # offline loop via the test brain, no model needed
 ```
 
-For day-to-day local use from a checkout:
+Day-to-day from a checkout:
 
 ```bash
 ./bin/hades init
@@ -44,36 +27,44 @@ For day-to-day local use from a checkout:
 ./bin/hades say agent-demo/demo "!write vault/hello.md <<<hello"
 ./bin/hades say agent-demo/demo "!read vault/hello.md"
 ./bin/hades tail demo-default
-./bin/hades primitives adopt
-./bin/hades serve
+./bin/hades state
+./bin/hades primitives adopt      # researched primitive catalog
+./bin/hades serve                 # HTTP API
 ```
 
-`./bin/hades` builds `dist/` if needed. After packaging or `npm link`, use `hades` directly.
+`./bin/hades` builds `dist/` if needed. State lives under `HADES_DATA_DIR` (default `./.hades`).
 
-## Brain Mode
+## Brains
 
-The default brain mode is **pi SDK**. The SDK path registers Hades tools (`hades_read`, `hades_write`, `hades_exec`) that route through Hands; it does not expose pi's local filesystem tools to the brain. In the local prototype, `hades_exec` is deliberately confined to Home-relative executables and rejects absolute paths, `..`, shell metacharacters, executable symlinks, and shell/interpreter shebangs. Real Kubernetes hands should replace this with pod/runtime isolation.
+- **`pi-sdk` (default)** — the real brain. Routes `hades_read`/`hades_write`/`hades_exec` through Hands. **Needs a working model in your environment** — Hades bundles no model and assumes none.
+- **`test`** — offline directive brain for tests/demos. `HADES_BRAIN_MODE=test` or `spec.brain.mode: "test"`.
 
-The generic demo pins `spec.brain.mode: test` so tests and smoke demos run offline without model credentials. You can also force offline mode with:
+The removed `deterministic` mode and `!bash` directive fail loudly by design. Use `test` + `!exec`.
 
-```bash
-HADES_BRAIN_MODE=test ./bin/hades say agent-demo/demo "hello"
+## Documentation
+
+- [`docs/architecture.md`](docs/architecture.md) — how the system works: the monolithic-kernel + resident/ephemeral model, squishy workloads, the privilege ladder, local-vs-k8s shapes.
+- [`docs/setup.md`](docs/setup.md) — honest setup: what works offline, what needs your environment, local hands confinement, schedules, where state lives.
+- [`spec/`](spec/) — the full AgentOS spec set, including [`spec/15-agentos-primitives.md`](spec/15-agentos-primitives.md) (what Hades adopts, defers, rejects).
+
+## Code shape
+
+```text
+src/domain/      resource, event, capability, sandbox, schedule-due, primitives
+src/ports/       interfaces for stores, brain drivers, hands, policy
+src/services/    internal kernel subsystems: Agent/Home/Message/Schedule/Policy/Listener/Reconciler/Primitive
+src/adapters/    JSON/JSONL stores, pi-SDK + test brains, local confined hands, HTTP API, manifest parser
+src/runtime/     local composition root
 ```
 
-Wren is an example manifest under `examples/wren/`; the default demo uses `examples/generic/`. Core runtime code does not default to Wren or `agent-wren`.
-
-## Primitive Catalog
-
-`./bin/hades primitives` exposes the autoresearched AgentOS primitive catalog: what Hades adopts, defers, and rejects from Linux, OpenClaw, ACP/acpx, Claude Agent SDK, gateways, voice, MCP, and workflow systems. See [`spec/15-agentos-primitives.md`](spec/15-agentos-primitives.md).
+Subsystems are internal to the kernel, not peer servers — that is the monolithic choice. Ports exist so `LocalConfinedHands` (in-process) and a future `ContainerHands` (pod) are the same interface with different policy.
 
 ## Core invariants
 
-- Kubernetes is the runtime substrate from the start.
 - Hades is a control plane, not a pi extension and not a single tool call.
-- Brain pods use the pi SDK in-process; they do not spawn `pi --mode rpc` inside a sandbox.
-- Brains, hands, sessions, listeners, homes, schedules, and capabilities are separate resources.
-- Agent self-modification is supported through scoped OS APIs: agents may edit their home, create tools, create schedules, and spawn child agents when policy permits.
+- Brains use the pi SDK in-process; they do not spawn `pi --mode rpc` inside a sandbox.
+- Brain, hands, session, listener, home, schedule, capability are separate concerns — but managed by one kernel, not separate servers.
+- Self-modification goes through scoped, capability-checked `os.*` syscalls: schedules, tools, listeners, child agents.
 - Durable session/event logs outlive every brain and hands pod.
-- Humans can inspect, steer, pause, resume, attach to, and talk directly to any authorized agent.
-
-Start with [`spec/00-index.md`](spec/00-index.md).
+- No model credentials ever live in hands.
+- Humans can inspect, steer, and talk directly to any authorized agent.
