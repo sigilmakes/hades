@@ -10,6 +10,7 @@ import { HomeService } from "../services/HomeService.js";
 import { ListenerService } from "../services/ListenerService.js";
 import { MessageService } from "../services/MessageService.js";
 import { PolicyService } from "../services/PolicyService.js";
+import { PrimitiveService } from "../services/PrimitiveService.js";
 import { Reconciler } from "../services/Reconciler.js";
 import { ScheduleService } from "../services/ScheduleService.js";
 import { nameOf } from "../domain/resources.js";
@@ -23,6 +24,7 @@ export class LocalRuntime {
         readonly brain: BrainService,
         readonly messages: MessageService,
         readonly schedules: ScheduleService,
+        readonly primitives: PrimitiveService,
         private readonly reconciler: Reconciler,
     ) {}
 
@@ -77,6 +79,7 @@ export function createRuntime(dataDir: string): LocalRuntime {
     const messages = new MessageService(state, events, agents, brain);
     const homes = new HomeService(dataDir, state, events);
     const listeners = new ListenerService(state, events);
+    const primitives = new PrimitiveService();
     const reconciler = new Reconciler(state, homes, agents, listeners, schedules, messages);
-    return new LocalRuntime(dataDir, state, events, agents, brain, messages, schedules, reconciler);
+    return new LocalRuntime(dataDir, state, events, agents, brain, messages, schedules, primitives, reconciler);
 }

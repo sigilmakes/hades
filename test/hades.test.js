@@ -8,6 +8,7 @@ import { createRuntime } from "../dist/runtime/LocalRuntime.js";
 import { LocalConfinedHands, sanitizedEnv } from "../dist/adapters/hands/LocalConfinedHands.js";
 import { parseConfinedExecCommand } from "../dist/adapters/hands/ConfinedCommandParser.js";
 import { createServer } from "../dist/adapters/api/server.js";
+import { PRIMITIVES } from "../dist/domain/primitives.js";
 
 const NS = "agent-test";
 const AGENT = "raven";
@@ -24,6 +25,15 @@ test("package metadata builds cli package from dist", async () => {
     assert.equal(packageJson.bin.hades, "dist/cli.js");
     assert.equal(packageJson.scripts.prepack, "npm run build");
     assert.ok(packageJson.files.includes("dist/"));
+});
+
+test("primitive catalog adopts useful surfaces and rejects noise", () => {
+    const byId = new Map(PRIMITIVES.map((primitive) => [primitive.id, primitive]));
+    assert.equal(byId.get("mcp.brokered-tools")?.decision, "adopt");
+    assert.equal(byId.get("acp.external-sessions")?.decision, "adopt");
+    assert.equal(byId.get("gateway.nodes")?.decision, "adopt");
+    assert.equal(byId.get("linux.dbus-raw")?.decision, "reject");
+    assert.equal(byId.get("mcp.sidecar-sprawl")?.decision, "reject");
 });
 
 async function runtimeFixture() {
@@ -186,7 +196,7 @@ test("hands env does not expose secret-like variables", () => {
     assert.equal(env.HADES_HANDS, "1");
 });
 
-test("API exposes agents and message endpoint", async () => {
+test("API exposes agents, primitives, and message endpoint", async () => {
     const { runtime } = await runtimeFixture();
     const server = createServer(runtime);
     await new Promise((resolve) => server.listen(0, resolve));
@@ -194,6 +204,9 @@ test("API exposes agents and message endpoint", async () => {
     try {
         const agents = await fetch(`http://127.0.0.1:${port}/hades/v1/agents`).then((res) => res.json());
         assert.equal(agents[0].metadata.name, AGENT);
+        const primitives = await fetch(`http://127.0.0.1:${port}/hades/v1/primitives?decision=adopt`).then((res) => res.json());
+        assert.ok(primitives.some((primitive) => primitive.id === "workflow.dag"));
+        assert.ok(primitives.every((primitive) => primitive.decision === "adopt"));
         const response = await fetch(`http://127.0.0.1:${port}/hades/v1/agents/${AGENT}/message`, {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -203,6 +216,27 @@ test("API exposes agents and message endpoint", async () => {
     } finally {
         await new Promise((resolve) => server.close(resolve));
     }
+});
+
+test("future primitive resource kinds are state-visible without fake controllers", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
+    const runtime = await createRuntime(dir).init();
+    await runtime.apply({ kind: "Gateway", metadata: { namespace: "hades-system", name: "local" }, spec: { transport: "websocket" } });
+    await runtime.apply({ kind: "ToolProvider", metadata: { namespace: NS, name: "mcp-broker" }, spec: { protocol: "mcp", mode: "brokered" } });
+    await runtime.apply({ kind: "Workflow", metadata: { namespace: NS, name: "review-loop" }, spec: { steps: [] } });
+    assert.equal(runtime.state.findByName("Gateway", "local", "hades-system").spec.transport, "websocket");
+    assert.equal(runtime.state.findByName("ToolProvider", "mcp-broker", NS).spec.mode, "brokered");
+    assert.equal(runtime.state.findByName("Workflow", "review-loop", NS).spec.steps.length, 0);
+});
+
+test("cli primitives lists adopted primitives without initializing state", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "hades-cli-"));
+    const result = spawnSync(process.execPath, [path.resolve("dist/cli.js"), "primitives", "adopt"], { cwd, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    const primitives = JSON.parse(result.stdout);
+    assert.ok(primitives.some((primitive) => primitive.id === "mcp.brokered-tools"));
+    assert.ok(primitives.every((primitive) => primitive.decision === "adopt"));
+    await assert.rejects(access(path.join(cwd, ".hades")), /ENOENT/);
 });
 
 test("unqualified agent names are rejected when ambiguous", async () => {

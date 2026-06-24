@@ -31,6 +31,7 @@ Hades is an agent operating system on Kubernetes. It provides a small, boring ke
 - [`12-system-agents.md`](12-system-agents.md) — provisioner, janitor, auditor, librarian, backup, and recursive agents.
 - [`13-v0-loop.md`](13-v0-loop.md) — smallest end-to-end loop that proves Hades should exist.
 - [`14-build-vs-borrow.md`](14-build-vs-borrow.md) — what Hades builds, borrows, and avoids.
+- [`15-agentos-primitives.md`](15-agentos-primitives.md) — useful OS/gateway/tool/workflow primitives versus noise.
 
 ## One-Screen Architecture
 

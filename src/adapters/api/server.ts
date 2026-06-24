@@ -10,6 +10,10 @@ export function createServer(runtime: LocalRuntime): http.Server {
             if (req.method === "GET" && url.pathname === "/hades/v1/agents") return json(res, runtime.state.list("Agent"));
             if (req.method === "GET" && url.pathname === "/hades/v1/events") return json(res, await runtime.events.list(url.searchParams.get("session") ?? undefined));
             if (req.method === "GET" && url.pathname === "/hades/v1/state") return json(res, await runtime.snapshot());
+            if (req.method === "GET" && url.pathname === "/hades/v1/primitives") {
+                const decision = url.searchParams.get("decision") ?? undefined;
+                return json(res, runtime.primitives.list(decision as any));
+            }
             if (req.method === "POST" && url.pathname === "/hades/v1/reconcile") {
                 await runtime.reconcile();
                 return json(res, { ok: true });

@@ -5,6 +5,7 @@ import { createServer } from "./adapters/api/server.js";
 import { loadManifest } from "./adapters/manifest.js";
 import { dataDirFromEnv } from "./adapters/store/JsonStateStore.js";
 import { createRuntime, type LocalRuntime } from "./runtime/LocalRuntime.js";
+import { PrimitiveService } from "./services/PrimitiveService.js";
 
 const [rawCommand = "help", ...args] = process.argv.slice(2);
 const command = rawCommand === "--help" || rawCommand === "-h" ? "help" : rawCommand;
@@ -19,6 +20,7 @@ try {
     else if (command === "message" || command === "say") await message(args);
     else if (command === "events" || command === "tail") await events(args[0]);
     else if (command === "state") console.log(JSON.stringify(await (await runtime()).snapshot(), null, 4));
+    else if (command === "primitives") await primitives(args[0]);
     else if (command === "serve") await serve(args);
     else if (command === "demo") await demo();
     else throw new Error(`Unknown command ${command}`);
@@ -38,6 +40,8 @@ Commands:
   say [opts] <agent> <txt>     send a prompt to an agent
   tail [session]               print durable events
   state                        print resource state
+  primitives [decision]        list researched AgentOS primitives
+                               decision: adopt, defer, or reject
   serve [port]                 start the Hades API server
   demo [manifest] [agent]      run a local loop using a manifest
                                default uses offline test demo manifest
@@ -90,6 +94,12 @@ async function message(args: string[]): Promise<void> {
 async function events(session: string | undefined): Promise<void> {
     const rows = await (await runtime()).events.list(session);
     for (const event of rows) console.log(JSON.stringify(event));
+}
+
+async function primitives(decision: string | undefined): Promise<void> {
+    if (decision && !["adopt", "defer", "reject"].includes(decision)) throw new Error(`Unknown primitive decision ${decision}`);
+    const rows = new PrimitiveService().list(decision as any);
+    console.log(JSON.stringify(rows, null, 4));
 }
 
 async function serve(args: string[]): Promise<void> {

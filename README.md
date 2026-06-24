@@ -44,6 +44,7 @@ For day-to-day local use from a checkout:
 ./bin/hades say agent-demo/demo "!write vault/hello.md <<<hello"
 ./bin/hades say agent-demo/demo "!read vault/hello.md"
 ./bin/hades tail demo-default
+./bin/hades primitives adopt
 ./bin/hades serve
 ```
 
@@ -60,6 +61,10 @@ HADES_BRAIN_MODE=test ./bin/hades say agent-demo/demo "hello"
 ```
 
 Wren is an example manifest under `examples/wren/`; the default demo uses `examples/generic/`. Core runtime code does not default to Wren or `agent-wren`.
+
+## Primitive Catalog
+
+`./bin/hades primitives` exposes the autoresearched AgentOS primitive catalog: what Hades adopts, defers, and rejects from Linux, OpenClaw, ACP/acpx, Claude Agent SDK, gateways, voice, MCP, and workflow systems. See [`spec/15-agentos-primitives.md`](spec/15-agentos-primitives.md).
 
 ## Core invariants
 
