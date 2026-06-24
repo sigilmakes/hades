@@ -20,6 +20,9 @@ export class MessageService {
     async messageAgent(agentName: string, text: string, options: MessageOptions = {}): Promise<{ run: HadesResource; reply: string }> {
         const agent = this.agents.resolveAgent(agentName, options.namespace);
         const namespace = namespaceOf(agent);
+        if (agent.spec?.lifecycle === "ephemeral" && agent.status?.phase === "completed") {
+            throw new Error(`Agent ${namespace}/${nameOf(agent)} is a reaped ephemeral worker and cannot be re-activated`);
+        }
         const sessionName = agent.status?.session ?? agent.spec?.defaultSession ?? `${nameOf(agent)}-default`;
         let session = this.state.findByName("Session", sessionName, namespace);
         if (!session) {

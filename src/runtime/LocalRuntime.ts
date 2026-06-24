@@ -102,14 +102,28 @@ export class LocalRuntime {
             });
         }
         await this.reconcile();
-        const { reply } = await this.messages.messageAgent(ephemeralName, String(spec.prompt ?? ""), { namespace });
-        const reaped = this.state.findByName("Agent", ephemeralName, namespace);
-        if (reaped) {
-            reaped.status = { ...(reaped.status ?? {}), phase: "completed", reapedAt: new Date().toISOString() };
-            await this.state.save();
+        let reply = "";
+        const grantName = capabilities.length > 0 ? `${ephemeralName}-spawn-grant` : undefined;
+        try {
+            reply = (await this.messages.messageAgent(ephemeralName, String(spec.prompt ?? ""), { namespace })).reply;
+        } finally {
+            // Always reap the ephemeral worker and clean up its grant, even if the run threw.
+            const reaped = this.state.findByName("Agent", ephemeralName, namespace);
+            if (reaped) {
+                reaped.status = { ...(reaped.status ?? {}), phase: "completed", reapedAt: new Date().toISOString() };
+                await this.state.save();
+                await this.events.append("system", "agent.reaped", { agent: ephemeralName, namespace, by: resolvedSubject.name });
+            }
+            if (grantName) {
+                const grant = this.state.findByName("CapabilityGrant", grantName, namespace);
+                if (grant) {
+                    grant.status = { ...(grant.status ?? {}), phase: "deleted" };
+                    delete this.state.state.CapabilityGrant[`${namespace}/${grantName}`];
+                    await this.state.save();
+                }
+            }
         }
-        await this.events.append("system", "agent.reaped", { agent: ephemeralName, namespace });
-        return { agent: ephemeral, reply };
+        return { agent: this.state.findByName("Agent", ephemeralName, namespace) ?? ephemeral, reply };
     }
 
     async snapshot(): Promise<HadesState> {

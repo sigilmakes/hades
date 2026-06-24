@@ -248,6 +248,70 @@ test("a resident agent can spawn an ephemeral worker via the !spawn directive", 
     assert.equal(helper.status.phase, "completed");
 });
 
+test("spawnAgent with capabilities grants and reaps the ephemeral worker's grant", async () => {
+    const { runtime } = await runtimeFixture();
+    await runtime.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "spawn-grant" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["spawnAgent"], constraints: { namespace: "own" } } });
+    await runtime.spawnAgent(
+        { kind: "Agent", name: AGENT, namespace: NS },
+        { name: "granted-worker", prompt: "hello", capabilities: ["createOwnSchedule"] },
+    );
+    assert.equal(runtime.state.findByName("CapabilityGrant", "granted-worker-spawn-grant", NS), undefined, "spawn grant must be cleaned up after reap");
+});
+
+test("spawnAgent API endpoint works and denies without capability", async () => {
+    const { runtime } = await runtimeFixture();
+    await runtime.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "spawn-grant" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["spawnAgent"], constraints: { namespace: "own" } } });
+    await runtime.apply({ kind: "Agent", metadata: { namespace: NS, name: "peon" }, spec: { homeRef: HOME, defaultSession: "peon-default", brain: { mode: "test" } } });
+    const server = createServer(runtime);
+    await new Promise((resolve) => server.listen(0, resolve));
+    const port = server.address().port;
+    try {
+        const ok = await fetch(`http://127.0.0.1:${port}/hades/v1/syscalls/spawn-agent`, {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ subject: { kind: "Agent", name: AGENT, namespace: NS }, spec: { name: "api-worker", prompt: "hi" } }),
+        });
+        assert.equal(ok.status, 200);
+        const okJson = await ok.json();
+        assert.equal(okJson.agent.spec.lifecycle, "ephemeral");
+        const denied = await fetch(`http://127.0.0.1:${port}/hades/v1/syscalls/spawn-agent`, {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ subject: { kind: "Agent", name: "peon", namespace: NS }, spec: { name: "x", prompt: "hi" } }),
+        });
+        assert.equal(denied.status, 403);
+    } finally {
+        await new Promise((resolve) => server.close(resolve));
+    }
+});
+
+test("a reaped ephemeral worker cannot be re-activated by messaging it", async () => {
+    const { runtime } = await runtimeFixture();
+    await runtime.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "spawn-grant" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["spawnAgent"], constraints: { namespace: "own" } } });
+    await runtime.spawnAgent({ kind: "Agent", name: AGENT, namespace: NS }, { name: "once-worker", prompt: "hello" });
+    await assert.rejects(
+        runtime.messageAgent(`${NS}/once-worker`, "again"),
+        /reaped ephemeral worker and cannot be re-activated/,
+    );
+});
+
+test("spawnAgent rejects a name that already exists and reaps even when the worker run throws", async () => {
+    const { runtime } = await runtimeFixture();
+    await runtime.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "spawn-grant" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["spawnAgent"], constraints: { namespace: "own" } } });
+    // name collision: AGENT already exists as a resident
+    await assert.rejects(
+        runtime.spawnAgent({ kind: "Agent", name: AGENT, namespace: NS }, { name: AGENT, prompt: "x" }),
+        /already exists/,
+    );
+    // a worker whose run throws is still reaped and its grant cleaned up
+    await runtime.spawnAgent(
+        { kind: "Agent", name: AGENT, namespace: NS },
+        { name: "failing-worker", prompt: "!bogusdirective", capabilities: ["createOwnSchedule"] },
+    ).catch(() => {});
+    const worker = runtime.state.findByName("Agent", "failing-worker", NS);
+    assert.ok(worker, "worker exists even after a failed run");
+    assert.equal(worker.status.phase, "completed", "failed worker is still reaped");
+    assert.equal(runtime.state.findByName("CapabilityGrant", "failing-worker-spawn-grant", NS), undefined, "failed worker grant cleaned up");
+});
+
 test("createOwnSchedule requires concrete existing subject and session", async () => {
     const { runtime } = await runtimeFixture();
     await assert.rejects(
