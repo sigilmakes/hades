@@ -12,7 +12,8 @@
     "test": "npm run build && node --test",
     "demo": "npm run build && node dist/cli.js demo",
     "serve": "npm run build && node dist/cli.js serve",
-    "hades": "npm run build --silent && node dist/cli.js"
+    "hades": "npm run build --silent && node dist/cli.js",
+    "prepack": "npm run build"
   },
   "engines": {
     "node": ">=24"
@@ -24,5 +25,12 @@
   "devDependencies": {
     "@types/node": "^24.0.0",
     "typescript": "^5.8.3"
-  }
+  },
+  "files": [
+    "dist/",
+    "deploy/",
+    "examples/",
+    "spec/",
+    "README.md"
+  ]
 }

@@ -33,6 +33,8 @@ export class TestBrainDriver implements BrainDriver {
                 reply = result.stdout || result.stderr || `exit ${result.code}`;
             } else if (trimmed.startsWith("!schedule ")) {
                 reply = await this.createScheduleFromDirective(agent, session, trimmed);
+            } else if (trimmed.startsWith("!")) {
+                throw new Error(`Unsupported test brain directive: ${trimmed.split(/\s+/, 1)[0]}`);
             } else {
                 reply = `${agent.spec?.displayName ?? nameOf(agent)} received: ${prompt}`;
             }

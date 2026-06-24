@@ -19,6 +19,13 @@ test("build output does not retain removed core or api modules", async () => {
     await assert.rejects(readdir(path.resolve("dist/api")), /ENOENT/);
 });
 
+test("package metadata builds cli package from dist", async () => {
+    const packageJson = JSON.parse(await readFile(path.resolve("package.json"), "utf8"));
+    assert.equal(packageJson.bin.hades, "dist/cli.js");
+    assert.equal(packageJson.scripts.prepack, "npm run build");
+    assert.ok(packageJson.files.includes("dist/"));
+});
+
 async function runtimeFixture() {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
     const runtime = await createRuntime(dir).init();
@@ -52,6 +59,15 @@ test("pi sdk is the default brain mode", async () => {
         if (oldMode === undefined) delete process.env.HADES_BRAIN_MODE;
         else process.env.HADES_BRAIN_MODE = oldMode;
     }
+});
+
+test("removed deterministic mode and bang-bash directive fail loudly", async () => {
+    const { runtime } = await runtimeFixture();
+    assert.throws(
+        () => runtime.brain.resolveMode({ kind: "Agent", metadata: { namespace: NS, name: "old-brain" }, spec: { brain: { mode: "deterministic" } } }),
+        /Unsupported brain mode deterministic/,
+    );
+    await assert.rejects(runtime.messageAgent(`${NS}/${AGENT}`, "!bash bin/tool"), /Unsupported test brain directive: !bash/);
 });
 
 test("agent can create schedule through policy-checked syscall", async () => {
