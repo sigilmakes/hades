@@ -30,3 +30,10 @@ handsImage:
   repository: node
   tag: 24-slim
   pullPolicy: IfNotPresent
+# The default userland connector image — an HTTP shim that turns a Connector
+# declaration into a running endpoint the brain calls. Swappable; the kernel
+# only routes to it. See examples/connector-shim/ + infra/docker/Dockerfile.connector.
+connectorImage:
+  repository: hades-connector
+  tag: latest
+  pullPolicy: IfNotPresent

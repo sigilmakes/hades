@@ -12,6 +12,7 @@ import { SystemAgents } from "../services/SystemAgents.js";
 import { ProjectionService } from "../services/ProjectionService.js";
 import { TemplateService } from "../services/TemplateService.js";
 import { ConnectorService } from "../services/ConnectorService.js";
+import { SkillRegistry } from "../services/SkillRegistry.js";
 import { LocalConfinedHands } from "../adapters/hands/LocalConfinedHands.js";
 import { PiSdkBrainDriver } from "../adapters/brain/PiSdkBrainDriver.js";
 import { TestBrainDriver } from "../adapters/brain/TestBrainDriver.js";
@@ -23,6 +24,7 @@ import type { HandsResolver } from "../ports/HandsResolver.js";
 import type { StateStorePort } from "../ports/StateStore.js";
 import type { EventStorePort } from "../ports/EventStore.js";
 import type { KubeClient } from "../ports/KubeClient.js";
+import { type Logger, type Metrics, noopLogger, noopMetrics } from "../ports/Observability.js";
 import { nameOf, type HadesResource } from "../domain/resources.js";
 
 /**
@@ -57,9 +59,12 @@ export class HadesRuntime extends Runtime {
         override readonly projections: ProjectionService,
         override readonly templates: TemplateService,
         override readonly connectors: ConnectorService,
+        override readonly skills: SkillRegistry,
+        override readonly log: Logger = noopLogger,
+        override readonly metrics: Metrics = noopMetrics,
         override readonly kubeClient?: KubeClient,
     ) {
-        super(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler, syscalls, projections, templates, connectors, kubeClient, kubeClient ? new KubeController(state, events, kubeClient) : undefined);
+        super(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler, syscalls, projections, templates, connectors, new SkillRegistry(), log, metrics, kubeClient, kubeClient ? new KubeController(state, events, kubeClient, log, metrics) : undefined);
     }
 
     override async init(): Promise<this> {
@@ -105,7 +110,7 @@ export async function createRuntime(dataDir: string, options: RuntimeOptions = {
     const projections = new ProjectionService(state, events);
     const templates = new TemplateService();
     const connectors = new ConnectorService(state, events, policy);
-    runtime = new HadesRuntime(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler, syscalls, projections, templates, connectors, options.kubeClient);
+    runtime = new HadesRuntime(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler, syscalls, projections, templates, connectors, new SkillRegistry(), options.logger ?? noopLogger, options.metrics ?? noopMetrics, options.kubeClient);
     return runtime;
 }
 
@@ -115,6 +120,10 @@ export type RuntimeOptions = {
     brainDriverFactory?: (mode: BrainMode) => BrainDriver;
     handsResolver?: HandsResolver;
     kubeClient?: KubeClient;
+    /** Structured logger; defaults to noop (dev/tests). Inject pino in prod. */
+    logger?: Logger;
+    /** Kernel metrics adapter; defaults to noop. Inject Prometheus in prod. */
+    metrics?: Metrics;
 };
 
 /**

@@ -520,8 +520,49 @@ spec:
                 path: { type: string }
                 # A human description of what this skill does.
                 description: { type: string }
+                # The userland image that implements this skill (catalog install).
+                image: { type: string }
+                # The catalog entry name this skill was installed from (if any).
+                catalog: { type: string }
             status:
               type: object
               properties:
                 phase: { type: string }
                 endpoint: { type: string }
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: namespacequotas.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: namespacequotas
+    singular: namespacequota
+    kind: NamespaceQuota
+    shortNames: [nq]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [limits]
+              properties:
+                # Per-kind create caps for this namespace. A missing kind =
+                # unlimited. Enforced by PolicyService.assertQuota.
+                limits:
+                  type: object
+                  additionalProperties:
+                    type: integer
+                  x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              properties:
+                phase: { type: string }
