@@ -129,3 +129,35 @@ tilt up                          # builds images, applies manifests, live-update
 `tilt down` stops services; `kind delete cluster --name hades` tears down the
 cluster. See [`infra/README.md`](../infra/README.md) for the controller
 reconciliation table and node-count-agnostic storage notes.
+
+## End-to-end test (kind)
+
+`scripts/e2e-kind.sh` brings up a fresh kind cluster, installs the Helm chart,
+creates an agent via the API, and asserts the brain pod reaches `Running` + a
+home write lands on the PVC. It's the acceptance path for the whole
+distributed stack (not just the FakeKubeClient unit tests).
+
+```bash
+nix shell nixpkgs#kind nixpkgs#kubernetes-helm nixpkgs#kubectl -c scripts/e2e-kind.sh
+# KEEP_CLUSTER=1 scripts/e2e-kind.sh   # leave the cluster up for debugging
+```
+
+CI runs the same script on PRs (`.github/workflows/e2e.yml`).
+
+### Agent namespaces need the brain SA
+
+The brain pod uses `serviceAccountName: hades-brain`, which is **namespaced**.
+The Helm chart creates it only in the release namespace (`hades-system`); any
+*other* namespace that runs agents needs the SA + a RoleBinding to the
+`hades-brain` ClusterRole (pods/exec) so the brain can exec into its hands pod:
+
+```bash
+kubectl -n <agent-ns> create serviceaccount hades-brain
+kubectl -n <agent-ns> create rolebinding hades-brain --clusterrole=hades-brain --serviceaccount=<agent-ns>:hades-brain
+```
+
+Without it the brain Deployment's ReplicaSet is stuck in `FailedCreate`.
+Apply the agent through the API (`POST /hades/v1/resources`) — the control
+plane is the source of truth, so state flows local→cluster and the controller
+reconciles it; applying a CRD directly with `kubectl` won't enter the local
+state mirror and won't be reconciled.

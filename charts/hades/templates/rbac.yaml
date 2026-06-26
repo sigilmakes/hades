@@ -22,7 +22,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "hades.labels" . | nindent 4 }}
-  automountServiceAccountToken: false
+automountServiceAccountToken: false
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

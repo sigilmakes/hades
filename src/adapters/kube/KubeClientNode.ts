@@ -1,4 +1,5 @@
 import * as k8s from "@kubernetes/client-node";
+import nodeFetch from "node-fetch";
 import { PassThrough } from "node:stream";
 import type { KubeClient, KubeObject, ExecResult } from "../../ports/KubeClient.js";
 
@@ -42,6 +43,44 @@ export class KubeClientNode implements KubeClient {
         this.networking = this.kc.makeApiClient(k8s.NetworkingV1Api);
     }
 
+    /**
+     * Build the per-call options for a CRD merge-patch: a one-shot middleware
+     * that sets `content-type: application/merge-patch+json`. The v1.x
+     * client defaults CRD patches to `application/json-patch+json` (a JSON
+     * Patch array), which rejects a merge-patch object body with
+     * `cannot unmarshal object into Go value of type []handlers.jsonPatchOp`.
+     * `_options` is a Configuration (not a headers bag), so a middleware is
+     * the documented way to set a per-request header.
+     */
+    /**
+     * Merge-patch a Hades CRD (spec metadata or status) via a direct
+     * authenticated fetch. The v1.x generated CustomObjectsApi defaults CRD
+     * patches to application/json-patch+json and rejects a merge-patch object;
+     * this sets the merge-patch content type explicitly. Auth + TLS come from
+     * {@link KubeConfig.applyToFetchOptions} (the same path object.ts uses).
+     */
+    private async mergePatchCrd(namespace: string, plural: string, name: string, body: Record<string, unknown>, subresource = ""): Promise<void> {
+        const cluster = this.kc.getCurrentCluster();
+        if (!cluster) throw new Error("no current cluster in kubeconfig");
+        const url = `${cluster.server}/apis/hades.dev/v1alpha1/namespaces/${namespace}/${plural}/${name}${subresource}`;
+        // applyToFetchOptions returns a node-fetch RequestInit carrying auth +
+        // TLS (an `agent` + an Authorization header). Reuse it whole and only
+        // override method/body + append the merge-patch content type, so the
+        // auth header survives. Cast through unknown to bridge the node-fetch
+        // vs DOM RequestInit type difference.
+        const authed = await this.kc.applyToFetchOptions({}) as Record<string, unknown>;
+        const headers = new Headers(authed.headers as unknown as Headers);
+        headers.set("content-type", "application/merge-patch+json");
+        // node-fetch (client-node's HTTP lib) honors the `agent` carrying the
+        // cluster's TLS opts + ca; the global undici fetch does not. Reuse the
+        // whole authed RequestInit and only override method/headers/body.
+        const res = await nodeFetch(url, { ...authed, method: "PATCH", headers, body: JSON.stringify(body) } as Parameters<typeof nodeFetch>[1]);
+        if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            throw Object.assign(new Error(`merge-patch ${plural}/${name}${subresource} failed: ${res.status} ${text}`), { statusCode: res.status });
+        }
+    }
+
     async ensure(namespace: string, object: KubeObject): Promise<string> {
         const name = object.metadata.name;
         const apiVersion = object.apiVersion;
@@ -81,12 +120,13 @@ export class KubeClientNode implements KubeClient {
         if (kind === "PersistentVolumeClaim") { await this.core.patchNamespacedPersistentVolumeClaim({ name, namespace, body: { metadata: patch } }); return; }
         if (kind === "CronJob") { await this.batch.patchNamespacedCronJob({ name, namespace, body: { metadata: patch } }); return; }
         if (kind === "NetworkPolicy") { await this.networking.patchNamespacedNetworkPolicy({ name, namespace, body: { metadata: patch } }); return; }
-        // Hades CRDs: strategic-merge patch via customObjects.
-        const plural = pluralize(kind);
-        await this.customObjects.patchNamespacedCustomObject({
-            group: "hades.dev", version: "v1alpha1", namespace, plural, name,
-            body: { metadata: patch },
-        });
+        // Hades CRDs: merge-patch via a direct authenticated fetch. The v1.x
+        // generated client defaults CRD patches to application/json-patch+json
+        // (a []handlers.jsonPatchOp array) and rejects a merge-patch object
+        // body; setting the content type via _options requires an Observable
+        // middleware. A direct fetch with applyToFetchOptions is simpler and
+        // gets auth + TLS for free.
+        await this.mergePatchCrd(namespace, pluralize(kind), name, { metadata: patch });
     }
 
     async list(namespace: string, kind: string): Promise<KubeObject[]> {
@@ -104,11 +144,7 @@ export class KubeClientNode implements KubeClient {
     }
 
     async patchStatus(namespace: string, kind: string, name: string, status: Record<string, unknown>): Promise<void> {
-        const plural = pluralize(kind);
-        const opts = { headers: { "content-type": "application/merge-patch+json" } };
-        await this.customObjects.patchNamespacedCustomObjectStatus({
-            group: "hades.dev", version: "v1alpha1", namespace, plural, name, body: { status }, ...opts,
-        });
+        await this.mergePatchCrd(namespace, pluralize(kind), name, { status }, "/status");
     }
 
     async getSecret(namespace: string, name: string): Promise<Record<string, string> | undefined> {
