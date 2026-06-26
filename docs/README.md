@@ -26,6 +26,7 @@ then branch by topic.
 - **[Control Plane](control-plane.md)** — the API server, the reconciler, the k8s controller.
 - **[Web UI](web-ui.md)** — the React console: agents, activity, easy spin-up.
 - **[Templates](templates.md)** — `hades new <template> <name>` prebaked spin-up.
+- **[Connectors](connectors.md)** — the HTTP capability boundary (outbound tools).
 - **[Security](security.md)** — capabilities, approvals, network policy, credential isolation.
 - **[Syscalls](syscalls.md)** — the `os.*` capability-checked syscall surface.
 - **[System Agents](system-agents.md)** — provisioner, janitor, auditor.
