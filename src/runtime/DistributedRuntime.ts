@@ -8,6 +8,7 @@ import { PrimitiveService } from "../services/PrimitiveService.js";
 import { Reconciler } from "../services/Reconciler.js";
 import { ScheduleService } from "../services/ScheduleService.js";
 import { SyscallService } from "../services/SyscallService.js";
+import { SystemAgents } from "../services/SystemAgents.js";
 import { LocalConfinedHands } from "../adapters/hands/LocalConfinedHands.js";
 import { PiSdkBrainDriver } from "../adapters/brain/PiSdkBrainDriver.js";
 import { TestBrainDriver } from "../adapters/brain/TestBrainDriver.js";
@@ -106,7 +107,7 @@ export async function createDistributedRuntime(dataDir: string, options: Distrib
     const homes = new HomeService(dataDir, state, events);
     const listeners = new ListenerService(state, events);
     const primitives = new PrimitiveService();
-    const reconciler = new Reconciler(state, homes, agents, listeners, schedules, messages);
+    const reconciler = new Reconciler(state, homes, agents, listeners, schedules, messages, new SystemAgents(state, events));
     const syscalls = new SyscallService(state, events, policy);
     runtime = new DistributedRuntime(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler, syscalls, options.kubeClient);
     return runtime;

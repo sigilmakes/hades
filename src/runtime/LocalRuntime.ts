@@ -14,6 +14,7 @@ import { PrimitiveService } from "../services/PrimitiveService.js";
 import { Reconciler } from "../services/Reconciler.js";
 import { ScheduleService } from "../services/ScheduleService.js";
 import { SyscallService } from "../services/SyscallService.js";
+import { SystemAgents } from "../services/SystemAgents.js";
 import { Runtime } from "./Runtime.js";
 import type { HandsResolver } from "../ports/HandsResolver.js";
 import type { BrainDriver } from "../ports/BrainDriver.js";
@@ -90,7 +91,7 @@ export function createRuntime(dataDir: string): LocalRuntime {
     const homes = new HomeService(dataDir, state, events);
     const listeners = new ListenerService(state, events);
     const primitives = new PrimitiveService();
-    const reconciler = new Reconciler(state, homes, agents, listeners, schedules, messages);
+    const reconciler = new Reconciler(state, homes, agents, listeners, schedules, messages, new SystemAgents(state, events));
     const syscalls = new SyscallService(state, events, policy);
     runtime = new LocalRuntime(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, reconciler, homes, listeners, syscalls);
     return runtime;

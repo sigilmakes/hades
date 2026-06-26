@@ -4,6 +4,7 @@ import { HomeService } from "./HomeService.js";
 import { ListenerService } from "./ListenerService.js";
 import { MessageService } from "./MessageService.js";
 import { ScheduleService } from "./ScheduleService.js";
+import { SystemAgents } from "./SystemAgents.js";
 
 export class Reconciler {
     constructor(
@@ -13,9 +14,11 @@ export class Reconciler {
         private readonly listeners: ListenerService,
         private readonly schedules: ScheduleService,
         private readonly messages: MessageService,
+        private readonly systemAgents?: SystemAgents,
     ) {}
 
     async reconcile(): Promise<void> {
+        if (this.systemAgents) await this.systemAgents.reconcile();
         await this.homes.reconcileHomes();
         await this.agents.reconcileAgents();
         await this.listeners.reconcileListeners();
