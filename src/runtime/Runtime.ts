@@ -1,4 +1,4 @@
-import { type AgentSubject, type HadesKind, type HadesResource, type HadesState, nameOf, namespaceOf } from "../domain/resources.js";
+import { type AgentSubject, type HadesKind, type HadesResource, type HadesState } from "../domain/resources.js";
 import { validateResource } from "../domain/validate.js";
 import type { EventStorePort } from "../ports/EventStore.js";
 import type { StateStorePort } from "../ports/StateStore.js";
@@ -29,6 +29,16 @@ import type { KubeController } from "../controller/KubeController.js";
  * pods. The in-process adapters exist so the kernel is testable without a
  * cluster — they are test injections, not a peer runtime.
  */
+
+/**
+ * Compare two versions of a resource for a meaningful change. Status is
+ * runtime-owned (the controller writes it), so it's ignored — only spec
+ * and the user-settable metadata (labels/annotations) count as a change.
+ */
+function specChanged(prev: HadesResource, next: HadesResource): boolean {
+    return JSON.stringify(prev.spec ?? {}) !== JSON.stringify(next.spec ?? {});
+}
+
 export abstract class Runtime {
     constructor(
         readonly dataDir: string,
@@ -75,13 +85,34 @@ export abstract class Runtime {
 
     async apply(resource: HadesResource): Promise<HadesResource> {
         validateResource(resource);
+        const ns = resource.metadata?.namespace ?? "default";
+        const name = resource.metadata?.name;
+        const existing = name ? this.state.get(resource.kind as HadesKind, ns, name) : undefined;
         const applied = await this.state.apply(resource);
-        await this.events.append("system", "resource.applied", {
-            kind: resource.kind,
-            namespace: applied.metadata?.namespace,
-            name: applied.metadata?.name,
-        });
+        // Idempotent: only record a resource.applied event when the resource
+        // actually changed (spec or labels/annotations). Re-applying an
+        // identical manifest is a no-op for the event log, so a controller
+        // re-applying desired state doesn't flood the durable log.
+        if (!existing || specChanged(existing, applied)) {
+            await this.events.append("system", "resource.applied", {
+                kind: resource.kind,
+                namespace: applied.metadata?.namespace,
+                name: applied.metadata?.name,
+            });
+        }
         return applied;
+    }
+
+    /**
+     * Remove a resource. Records a `resource.removed` event only if it
+     * existed. Returns true if something was deleted.
+     */
+    async remove(kind: HadesKind, namespace: string, name: string): Promise<boolean> {
+        const existed = await this.state.remove(kind, namespace, name);
+        if (existed) {
+            await this.events.append("system", "resource.removed", { kind, namespace, name });
+        }
+        return existed;
     }
 
     async reconcile(): Promise<void> {

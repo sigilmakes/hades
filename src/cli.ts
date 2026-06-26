@@ -9,7 +9,7 @@ import { createRuntime, type RuntimeOptions } from "./runtime/HadesRuntime.js";
 import type { Runtime } from "./runtime/Runtime.js";
 import { PrimitiveService } from "./services/PrimitiveService.js";
 
-/** Plural/singular aliases for resource kinds (used by `hades get`). */
+/** Plural/singular aliases for resource kinds (used by `hades get`/`delete`). */
 const KIND_ALIASES: Record<string, string> = {
     agents: "Agent", agent: "Agent",
     homes: "Home", home: "Home",
@@ -30,6 +30,7 @@ try {
     if (command === "help") help();
     else if (command === "init") await initEmpty();
     else if (command === "apply" || command === "up") await apply(args[0]);
+    else if (command === "delete") await remove(args);
     else if (command === "reconcile") await reconcile();
     else if (command === "message" || command === "say") await message(args);
     else if (command === "events" || command === "tail") await events(args[0]);
@@ -54,6 +55,7 @@ function help(): void {
 Commands:
   init                         initialize an empty Hades data directory
   apply|up <file>              apply JSON/YAML-subset resource documents
+  delete <kind> <name>         remove a resource (agents, schedules, ...)
   reconcile                    run controllers once
   say [opts] <agent> <txt>     send a prompt to an agent
   tail [session]               print durable events
@@ -113,6 +115,19 @@ async function apply(file: string | undefined): Promise<void> {
     for (const resource of resources) await rt.apply(resource);
     await rt.reconcile();
     console.log(`applied ${resources.length} resource(s)`);
+}
+
+async function remove(args: string[]): Promise<void> {
+    const { namespace, rest } = parseNamespace(args);
+    const kindArg = rest[0];
+    const name = rest[1];
+    if (!kindArg || !name) throw new Error("delete requires a kind and name: hades delete <kind> <name> [--namespace ns]");
+    const kind = KIND_ALIASES[kindArg.toLowerCase()] ?? kindArg;
+    const rt = await runtime();
+    const existed = await rt.remove(kind as never, namespace, name);
+    if (!existed) { console.error(`hades: ${kind} ${namespace ? namespace + "/" : ""}${name} not found`); process.exitCode = 1; return; }
+    await rt.reconcile();
+    console.log(`deleted ${kind} ${namespace}/${name}`);
 }
 
 async function reconcile(): Promise<void> {
