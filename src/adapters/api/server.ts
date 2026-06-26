@@ -88,6 +88,27 @@ function routes(runtime: Runtime): Route[] {
         { method: "GET", path: "/hades/v1/projections/listeners", handler: (c) => p.listenerStatus(c.url.searchParams.get("namespace") ?? undefined) },
         { method: "GET", path: "/hades/v1/projections/snapshot", handler: (c) => p.snapshot(c.url.searchParams.get("namespace") ?? undefined) },
         {
+            method: "GET", path: "/hades/v1/templates", handler: async () =>
+                ({ templates: await runtime.templates.list() }),
+        },
+        {
+            method: "POST", path: "/hades/v1/templates/:tpl/apply", handler: async (c) => {
+                const name = c.body.name;
+                if (typeof name !== "string") throw new ClientError("body.name required", 400);
+                const ns = typeof c.body.namespace === "string" ? c.body.namespace : "default";
+                const vars: Record<string, string> = {};
+                if (c.body.vars && typeof c.body.vars === "object") {
+                    for (const [k, v] of Object.entries(c.body.vars as Record<string, unknown>)) {
+                        if (typeof v === "string") vars[k] = v;
+                    }
+                }
+                const resources = await runtime.templates.render(c.params.tpl, name, ns, vars);
+                for (const r of resources) await runtime.apply(r);
+                await runtime.reconcile();
+                return { applied: resources.length, resources };
+            },
+        },
+        {
             method: "GET", path: "/hades/v1/primitives", handler: (c) => {
                 let decision;
                 try { decision = parsePrimitiveDecision(c.url.searchParams.get("decision") ?? undefined); }

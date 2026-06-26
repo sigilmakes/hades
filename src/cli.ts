@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,14 +28,13 @@ const command = rawCommand === "--help" || rawCommand === "-h" ? "help" : rawCom
 const dataDir = dataDirFromEnv();
 /** Resolve the built web UI directory (ui/dist), if present. */
 const uiDir = process.env.HADES_UI_DIR ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../ui/dist");
-const TEMPLATE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../examples/templates");
 let runtimePromise: Promise<Runtime> | undefined;
 
 try {
     if (command === "help") help();
     else if (command === "init") await initEmpty();
     else if (command === "apply" || command === "up") await apply(args[0]);
-    else if (command === "new") await newFromTemplate(args);
+    else if (command === "new") { if (args.length === 0) await listTemplates(); else await newFromTemplate(args); }
     else if (command === "delete") await remove(args);
     else if (command === "reconcile") await reconcile();
     else if (command === "message" || command === "say") await message(args);
@@ -134,10 +133,8 @@ async function newFromTemplate(args: string[]): Promise<void> {
     const template = rest[0];
     const name = rest[1];
     if (!template || !name) throw new Error("new requires a template and name: hades new <template> <name> [--set k=v]");
-    const file = path.join(TEMPLATE_DIR, `${template}.yaml`);
-    const raw = await readFile(file, "utf8").catch(() => { throw new Error(`template '${template}' not found in ${TEMPLATE_DIR}`); });
     // Collect --set key=value substitutions.
-    const vars: Record<string, string> = { name, namespace: namespace ?? "default" };
+    const vars: Record<string, string> = {};
     for (let i = rest.indexOf(name) + 1; i < args.length; i++) {
         if (args[i] === "--set" && args[i + 1]?.includes("=")) {
             const [k, ...v] = args[i + 1].split("=");
@@ -145,16 +142,20 @@ async function newFromTemplate(args: string[]): Promise<void> {
             i++;
         }
     }
-    // Substitute {{key}} tokens (braces optional around bare words).
-    const rendered = raw.replace(/\{\{([\w-]+)}}/g, (_, k) => vars[k] ?? `{{${k}}}`);
-    const { parseDocuments } = await import("./adapters/manifest.js");
-    const { validateResource } = await import("./domain/validate.js");
-    const resources = parseDocuments(rendered);
-    for (const resource of resources) validateResource(resource); // fail fast on a bad template render
     const rt = await runtime();
+    const resources = await rt.templates.render(template, name, namespace ?? "default", vars);
     for (const resource of resources) await rt.apply(resource);
     await rt.reconcile();
     console.log(`created ${name} from template ${template} (${resources.length} resources in ${namespace ?? "default"})`);
+}
+
+/** `hades new` with no args lists available templates. */
+async function listTemplates(): Promise<void> {
+    const rt = await runtime();
+    const templates = await rt.templates.list();
+    if (templates.length === 0) { console.log("No templates found."); return; }
+    console.log("Available templates (hades new <template> <name>):");
+    for (const t of templates) console.log(`  ${t}`);
 }
 
 async function remove(args: string[]): Promise<void> {

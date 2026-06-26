@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type HadesResource } from "../api.js";
 import { useNavigate } from "react-router-dom";
 
@@ -21,39 +21,35 @@ export function NewAgentPage() {
   const [brainMode, setBrainMode] = useState("pi-sdk");
   const [platform, setPlatform] = useState("");
   const [secretRef, setSecretRef] = useState("");
+  // Template quick-pick mode.
+  const [useTemplate, setUseTemplate] = useState(false);
+  const [template, setTemplate] = useState("");
+  const [tmplVars, setTmplVars] = useState("");
+  const { data: templates = [] } = useQuery<string[]>({ queryKey: ["templates"], queryFn: () => api.templates().then((r) => r.templates) });
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      // 1. Home (shared, durable) — one per agent.
-      const home: HadesResource = {
-        kind: "Home",
-        metadata: { name: `${name}-home`, namespace },
-        spec: {},
-      };
-      await api.apply(home);
-      // 2. The agent itself — resident, active, pointing at the home.
+      if (useTemplate && template) {
+        // Template quick-pick: parse "key=value, key2=value2" vars and apply.
+        const vars: Record<string, string> = {};
+        for (const pair of tmplVars.split(",")) {
+          const [k, ...v] = pair.split("=");
+          if (k.trim()) vars[k.trim()] = v.join("=").trim();
+        }
+        await api.applyTemplate(template, name, namespace, vars);
+        return;
+      }
+      // Manual: Home + Agent + optional Listener.
+      await api.apply({ kind: "Home", metadata: { name: `${name}-home`, namespace }, spec: {} });
       const agent: HadesResource = {
         kind: "Agent",
         metadata: { name, namespace },
-        spec: {
-          homeRef: `${name}-home`,
-          defaultSession: `${name}-default`,
-          desiredState: "active",
-          lifecycle: "resident",
-          brain: { mode: brainMode },
-        },
+        spec: { homeRef: `${name}-home`, defaultSession: `${name}-default`, desiredState: "active", lifecycle: "resident", brain: { mode: brainMode } },
       };
       await api.apply(agent);
-      // 3. Optionally attach a listener bound to an external service.
       if (platform) {
-        const listener: HadesResource = {
-          kind: "Listener",
-          metadata: { name: `${name}-${platform}`, namespace },
-          spec: { agentRef: name, platform, ...(secretRef ? { secretRef } : {}) },
-        };
-        await api.apply(listener);
+        await api.apply({ kind: "Listener", metadata: { name: `${name}-${platform}`, namespace }, spec: { agentRef: name, platform, ...(secretRef ? { secretRef } : {}) } });
       }
-      // Reconcile so pods materialize immediately.
       await api.reconcile();
     },
     onSuccess: () => {
@@ -75,6 +71,29 @@ export function NewAgentPage() {
         onSubmit={(e) => { e.preventDefault(); if (valid) createMutation.mutate(); }}
         className="space-y-5"
       >
+        {/* Mode toggle: manual vs template quick-pick */}
+        <div className="flex gap-2 rounded-lg border border-hades-border p-1">
+          <button type="button" onClick={() => setUseTemplate(false)} className={`flex-1 rounded px-3 py-1.5 text-sm font-medium ${!useTemplate ? "bg-hades-accent text-white" : "text-slate-400 hover:text-white"}`}>Manual</button>
+          <button type="button" onClick={() => setUseTemplate(true)} className={`flex-1 rounded px-3 py-1.5 text-sm font-medium ${useTemplate ? "bg-hades-accent text-white" : "text-slate-400 hover:text-white"}`}>From template</button>
+        </div>
+
+        {useTemplate && (
+          <div className="space-y-4 rounded-lg border border-hades-border p-4">
+            <div>
+              <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Template</label>
+              <select value={template} onChange={(e) => setTemplate(e.target.value)} className="w-full rounded-md border border-hades-border bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-hades-accent focus:outline-none">
+                <option value="">Choose…</option>
+                {templates.map((t: string) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Variables (comma-separated key=value)</label>
+              <input value={tmplVars} onChange={(e) => setTmplVars(e.target.value)} placeholder="token-secret=mybot-token, prompt=Hello" className="w-full rounded-md border border-hades-border bg-slate-950 px-3 py-2 font-mono text-sm text-slate-100 placeholder:text-slate-600 focus:border-hades-accent focus:outline-none" />
+            </div>
+            <p className="text-xs text-slate-500">The template fills in Home, Agent, and any Listener/Schedule/Grant — you just name it and set the vars.</p>
+          </div>
+        )}
+
         <div>
           <label className="mb-1 block text-sm font-medium text-slate-300">Agent name</label>
           <input

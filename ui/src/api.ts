@@ -82,6 +82,9 @@ export const api = {
   listeners: (ns?: string) => getJson<HadesResource[]>(`/hades/v1/projections/listeners${ns ? `?namespace=${ns}` : ""}`),
   snapshot: (ns?: string) => getJson<Record<string, HadesResource[]>>(`/hades/v1/projections/snapshot${ns ? `?namespace=${ns}` : ""}`),
   healthz: () => getJson<{ ok: boolean }>("/healthz"),
+  templates: () => getJson<{ templates: string[] }>("/hades/v1/templates"),
+  applyTemplate: (template: string, name: string, namespace: string, vars: Record<string, string>) =>
+    postJson<{ applied: number; resources: HadesResource[] }>(`/hades/v1/templates/${template}/apply`, { name, namespace, vars }),
   // Lifecycle actions
   apply: (resource: HadesResource) => postJson<HadesResource>("/hades/v1/resources", resource),
   remove: (kind: string, name: string, namespace = "default") =>

@@ -204,3 +204,41 @@ test("POST /approvals/:name/respond denies, and a second respond is rejected", a
         server.close();
     }
 });
+
+test("GET /hades/v1/templates lists available templates", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "hades-static-"));
+    const runtime = await (await createRuntime(dir)).init();
+    const server = createServer(runtime);
+    await new Promise((r) => server.listen(0, r));
+    const port = server.address().port;
+    try {
+        const res = await fetch(`http://127.0.0.1:${port}/hades/v1/templates`);
+        assert.equal(res.status, 200);
+        const body = await res.json();
+        assert.ok(body.templates.includes("discord-bot"));
+        assert.ok(body.templates.includes("cron-worker"));
+    } finally {
+        server.close();
+    }
+});
+
+test("POST /hades/v1/templates/:tpl/apply renders and applies a template", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "hades-static-"));
+    const runtime = await (await createRuntime(dir)).init();
+    const server = createServer(runtime);
+    await new Promise((r) => server.listen(0, r));
+    const port = server.address().port;
+    try {
+        const res = await fetch(`http://127.0.0.1:${port}/hades/v1/templates/cron-worker/apply`, {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ name: "nightly", namespace: "agent-nightly", vars: { prompt: "Summarize the day" } }),
+        });
+        assert.equal(res.status, 200);
+        const body = await res.json();
+        assert.ok(body.applied >= 3);
+        assert.ok(runtime.state.findByName("Agent", "nightly", "agent-nightly"));
+        assert.ok(runtime.state.findByName("Schedule", "nightly-tick", "agent-nightly"));
+    } finally {
+        server.close();
+    }
+});
