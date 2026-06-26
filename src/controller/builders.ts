@@ -1,5 +1,5 @@
 import { nameOf, namespaceOf, type HadesResource } from "../domain/resources.js";
-import { hadesLabels, type KubeObject } from "../ports/KubeClient.js";
+import { hadesLabels, HADES_FINALIZER, type KubeObject } from "../ports/KubeClient.js";
 
 /** A resolved owner reference (cluster uid included) or undefined. */
 export type OwnerRef = { apiVersion: string; kind: string; name: string; uid: string; blockOwnerDeletion: boolean; controller: boolean };
@@ -181,7 +181,7 @@ export function buildHadesCrd(resource: HadesResource): KubeObject {
     return {
         apiVersion: "hades.dev/v1alpha1",
         kind: resource.kind,
-        metadata: { name, namespace: ns, labels: hadesLabels(resource) },
+        metadata: { name, namespace: ns, labels: hadesLabels(resource), finalizers: [HADES_FINALIZER] },
         spec: resource.spec ?? {},
     };
 }

@@ -15,13 +15,23 @@ export class FakeKubeClient implements KubeClient {
     async ensure(namespace: string, object: KubeObject): Promise<string> {
         const name = object.metadata.name;
         const key = this.key(namespace, object.kind, name);
-        this.objects.set(key, { ...object, metadata: { ...object.metadata, namespace } });
+        const hadesKinds = new Set(["Agent", "Home", "Hands", "Session", "BrainBinding", "Listener", "Schedule", "Run", "Approval", "CapabilityGrant", "AgentClass"]);
+        // Stamp a synthetic uid on Hades CRDs (a real cluster assigns one) so
+        // ownerReferences resolve in tests.
+        const uid = hadesKinds.has(object.kind) ? `fake-${object.kind}-${name}` : object.metadata.uid;
+        this.objects.set(key, { ...object, metadata: { ...object.metadata, namespace, ...(uid ? { uid } : {}) } });
         return name;
     }
 
     async delete(namespace: string, kind: string, name: string): Promise<boolean> {
         const key = this.key(namespace, kind, name);
         return this.objects.delete(key);
+    }
+
+    async patchMetadata(namespace: string, kind: string, name: string, patch: Record<string, unknown>): Promise<void> {
+        const obj = await this.get(namespace, kind, name);
+        if (!obj) return;
+        obj.metadata = { ...obj.metadata, ...patch };
     }
 
     async list(namespace: string, kind: string): Promise<KubeObject[]> {
@@ -37,13 +47,7 @@ export class FakeKubeClient implements KubeClient {
     }
 
     async get(namespace: string, kind: string, name: string): Promise<KubeObject | undefined> {
-        const existing = this.objects.get(this.key(namespace, kind, name));
-        if (existing) return existing;
-        const hadesKinds = new Set(["Agent", "Home", "Hands", "Session", "BrainBinding", "Listener", "Schedule", "Run", "Approval", "CapabilityGrant", "AgentClass"]);
-        if (hadesKinds.has(kind)) {
-            return { apiVersion: "hades.dev/v1alpha1", kind, metadata: { name, namespace, uid: `fake-${kind}-${name}` } };
-        }
-        return undefined;
+        return this.objects.get(this.key(namespace, kind, name));
     }
 
     async patchStatus(namespace: string, kind: string, name: string, status: Record<string, unknown>): Promise<void> {

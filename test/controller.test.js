@@ -255,3 +255,38 @@ test("controller writes status to the cluster CRD status subresource", async () 
     assert.ok(homePatch, "home status patched to the cluster");
     assert.equal(homePatch.status.phase, "ready");
 });
+
+test("controller stamps a finalizer on a newly-created Agent CRD", async () => {
+    const { dist, kube } = await fixture();
+    await dist.reconcile();
+    const crd = await kube.get(NS, "Agent", AGENT);
+    assert.ok(crd?.metadata.finalizers?.includes("hades.dev/finalizer"), "Agent CRD has the hades finalizer");
+});
+
+test("finalizer: a deleting Agent CRD triggers cleanup + finalizer removal", async () => {
+    const { dist, kube } = await fixture();
+    await dist.reconcile();
+    // Sanity: brain pod exists.
+    assert.ok(await kube.get(NS, "Deployment", `brain-${AGENT}`));
+    // Simulate k8s marking the CRD for deletion.
+    const crd = await kube.get(NS, "Agent", AGENT);
+    crd.metadata.deletionTimestamp = new Date().toISOString();
+    await dist.reconcile();
+    // Cleanup ran: brain + hands pods are gone.
+    assert.equal(await kube.get(NS, "Deployment", `brain-${AGENT}`), undefined, "brain Deployment finalized away");
+    assert.equal(await kube.get(NS, "Service", `brain-${AGENT}`), undefined, "brain Service finalized away");
+    assert.equal(await kube.get(NS, "Deployment", `hands-${AGENT}`), undefined, "hands Deployment finalized away");
+    // Finalizer removed so k8s completes the deletion.
+    const finalized = await kube.get(NS, "Agent", AGENT);
+    assert.deepEqual(finalized?.metadata.finalizers ?? [], []);
+});
+
+test("finalizer: a deleting Home CRD removes its PVC", async () => {
+    const { dist, kube } = await fixture();
+    await dist.reconcile();
+    assert.ok(await kube.get(NS, "PersistentVolumeClaim", `home-${HOME}`));
+    const crd = await kube.get(NS, "Home", HOME);
+    crd.metadata.deletionTimestamp = new Date().toISOString();
+    await dist.reconcile();
+    assert.equal(await kube.get(NS, "PersistentVolumeClaim", `home-${HOME}`), undefined, "home PVC finalized away");
+});

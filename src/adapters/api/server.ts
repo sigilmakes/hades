@@ -49,7 +49,7 @@ function routes(runtime: Runtime): Route[] {
     const p = runtime.projections;
     return [
         { method: "GET", path: "/healthz", handler: () => ({ ok: true }) },
-        { method: "GET", path: "/readyz", handler: () => (runtime.ready ? { ok: true } : new ClientError("not initialized", 503)) },
+        { method: "GET", path: "/readyz", handler: () => (runtime.ready ? { ok: true } : { __status: 503, body: { ok: false, reason: "not initialized" } }) },
         { method: "GET", path: "/hades/v1/agents", handler: () => runtime.state.list("Agent") },
         { method: "GET", path: "/hades/v1/events", handler: (c) => runtime.events.list(c.url.searchParams.get("session") ?? undefined) },
         { method: "GET", path: "/hades/v1/state", handler: () => runtime.snapshot() },
@@ -119,6 +119,11 @@ export function createServer(runtime: Runtime): http.Server {
             const matched = match(req.method ?? "GET", url.pathname, table);
             if (!matched) return json(res, { error: "not found" }, 404);
             const result = await matched.route.handler({ url, body, params: matched.params });
+            // A handler may return { __status, body } to set a non-200 status.
+            if (result && typeof result === "object" && "__status" in result) {
+                const r = result as { __status: number; body: unknown };
+                return json(res, r.body, r.__status);
+            }
             return json(res, result);
         } catch (error) {
             if (error instanceof ClientError) return json(res, { error: error.message }, error.status);

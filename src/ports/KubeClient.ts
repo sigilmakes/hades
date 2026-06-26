@@ -17,6 +17,8 @@ export interface KubeClient {
     ensure(namespace: string, object: KubeObject): Promise<string>;
     /** Idempotently delete a k8s object if it exists. Returns true if deleted. */
     delete(namespace: string, kind: string, name: string): Promise<boolean>;
+    /** Strategic-merge patch a k8s object's metadata (e.g. add/remove a finalizer). */
+    patchMetadata(namespace: string, kind: string, name: string, patch: Record<string, unknown>): Promise<void>;
     /** List objects of a kind in a namespace. */
     list(namespace: string, kind: string): Promise<KubeObject[]>;
     /** Get a single object (to read its uid for ownerReferences). */
@@ -33,7 +35,7 @@ export interface KubeClient {
 export interface KubeObject {
     apiVersion: string;
     kind: string;
-    metadata: { name: string; namespace?: string; labels?: Record<string, string>; uid?: string; ownerReferences?: Array<{ apiVersion: string; kind: string; name: string; uid?: string; blockOwnerDeletion?: boolean; controller?: boolean }> };
+    metadata: { name: string; namespace?: string; labels?: Record<string, string>; uid?: string; finalizers?: string[]; deletionTimestamp?: string; ownerReferences?: Array<{ apiVersion: string; kind: string; name: string; uid?: string; blockOwnerDeletion?: boolean; controller?: boolean }> };
     spec?: Record<string, any>;
     status?: Record<string, any>;
     /** Wire format role/selector strings, etc. kept as opaque for the client. */
@@ -45,6 +47,10 @@ export interface ExecResult {
     stdout: string;
     stderr: string;
 }
+
+/** Name of the finalizer the controller stamps on Hades CRDs so it can run
+ * cleanup before k8s deletes the object. */
+export const HADES_FINALIZER = "hades.dev/finalizer";
 
 /** Labels the controller stamps on every object it owns. */
 export const HADES_LABELS = {
