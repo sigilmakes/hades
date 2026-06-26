@@ -13,6 +13,8 @@ import type { Reconciler } from "../services/Reconciler.js";
 import type { ScheduleService } from "../services/ScheduleService.js";
 import type { SyscallService } from "../services/SyscallService.js";
 import type { ProjectionService } from "../services/ProjectionService.js";
+import type { TemplateService } from "../services/TemplateService.js";
+import type { ConnectorService } from "../services/ConnectorService.js";
 import type { KubeClient } from "../ports/KubeClient.js";
 import type { KubeController } from "../controller/KubeController.js";
 
@@ -55,6 +57,8 @@ export abstract class Runtime {
         readonly reconciler: Reconciler,
         readonly syscalls: SyscallService,
         readonly projections: ProjectionService,
+        readonly templates: TemplateService,
+        readonly connectors: ConnectorService,
         /** The k8s client, if a live cluster is attached (absent in tests). */
         readonly kubeClient?: KubeClient,
         /** The k8s controller, set by {@link HadesRuntime} when a cluster is attached. */

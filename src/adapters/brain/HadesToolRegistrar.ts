@@ -1,5 +1,11 @@
 import type { HandsBackend } from "../../ports/HandsBackend.js";
 
+/** A kernel syscall endpoint the brain calls to mutate Hades resources
+ * (e.g. install packages). Injected so tests can stub it. */
+export interface SyscallEndpoint {
+    installPackages(subject: { kind: string; name: string; namespace: string }, spec: { packages: string[]; name?: string }): Promise<unknown>;
+}
+
 type PiToolApi = {
     registerTool(tool: unknown): void;
 };
@@ -9,6 +15,7 @@ type ToolFactory = (definition: unknown) => unknown;
 type TypeApi = {
     Object(schema: Record<string, unknown>): unknown;
     String(): unknown;
+    Array(value: unknown): unknown;
     Optional(value: unknown): unknown;
 };
 
@@ -17,6 +24,8 @@ export class HadesToolRegistrar {
         private readonly hands: HandsBackend,
         private readonly defineTool: ToolFactory,
         private readonly Type: TypeApi,
+        /** The agent's identity + a syscall endpoint for hades_install. */
+        private readonly self?: { subject: { kind: string; name: string; namespace: string }; syscalls: SyscallEndpoint },
     ) {}
 
     register(api: PiToolApi): void {
@@ -50,5 +59,18 @@ export class HadesToolRegistrar {
                 return { content: [{ type: "text", text: result.stdout || result.stderr || `exit ${result.code}` }], details: result };
             },
         }));
+        // hades_install — declare Nix packages for the agent's hands image + rebuild.
+        if (this.self) {
+            api.registerTool(this.defineTool({
+                name: "hades_install",
+                label: "Hades Install Packages",
+                description: "Declare Nix packages for this agent's hands image and trigger a rebuild. The new image rolls onto the hands pod.",
+                parameters: this.Type.Object({ packages: this.Type.Array(this.Type.String()) }),
+                execute: async (_id: string, params: { packages: string[] }) => {
+                    const image = await this.self.syscalls.installPackages(this.self.subject, { packages: params.packages }) as { metadata?: { name?: string }; spec?: { packages?: string[] } };
+                    return { content: [{ type: "text", text: `requested hands image rebuild with: ${params.packages.join(", ")}` }], details: { image: image?.metadata?.name, packages: image?.spec?.packages } };
+                },
+            }));
+        }
     }
 }

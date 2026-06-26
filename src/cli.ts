@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createServer } from "./adapters/api/server.js";
 import { loadManifest } from "./adapters/manifest.js";
 import { dataDirFromEnv } from "./adapters/store/JsonStateStore.js";
@@ -24,12 +26,15 @@ const KIND_ALIASES: Record<string, string> = {
 const [rawCommand = "help", ...args] = process.argv.slice(2);
 const command = rawCommand === "--help" || rawCommand === "-h" ? "help" : rawCommand;
 const dataDir = dataDirFromEnv();
+/** Resolve the built web UI directory (ui/dist), if present. */
+const uiDir = process.env.HADES_UI_DIR ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../ui/dist");
 let runtimePromise: Promise<Runtime> | undefined;
 
 try {
     if (command === "help") help();
     else if (command === "init") await initEmpty();
     else if (command === "apply" || command === "up") await apply(args[0]);
+    else if (command === "new") { if (args.length === 0) await listTemplates(); else await newFromTemplate(args); }
     else if (command === "delete") await remove(args);
     else if (command === "reconcile") await reconcile();
     else if (command === "message" || command === "say") await message(args);
@@ -55,6 +60,8 @@ function help(): void {
 Commands:
   init                         initialize an empty Hades data directory
   apply|up <file>              apply JSON/YAML-subset resource documents
+  new <template> <name>        spin up an agent from a template
+                              (examples/templates/*.yaml; --set k=v)
   delete <kind> <name>         remove a resource (agents, schedules, ...)
   reconcile                    run controllers once
   say [opts] <agent> <txt>     send a prompt to an agent
@@ -115,6 +122,40 @@ async function apply(file: string | undefined): Promise<void> {
     for (const resource of resources) await rt.apply(resource);
     await rt.reconcile();
     console.log(`applied ${resources.length} resource(s)`);
+}
+
+/**
+ * Spin up an agent from a template: `hades new discord-bot mybot --set token-secret=...`.
+ * Substitutes {{name}}, {{namespace}}, and any --set key=value, then applies.
+ */
+async function newFromTemplate(args: string[]): Promise<void> {
+    const { namespace, rest } = parseNamespace(args);
+    const template = rest[0];
+    const name = rest[1];
+    if (!template || !name) throw new Error("new requires a template and name: hades new <template> <name> [--set k=v]");
+    // Collect --set key=value substitutions.
+    const vars: Record<string, string> = {};
+    for (let i = rest.indexOf(name) + 1; i < args.length; i++) {
+        if (args[i] === "--set" && args[i + 1]?.includes("=")) {
+            const [k, ...v] = args[i + 1].split("=");
+            vars[k] = v.join("=");
+            i++;
+        }
+    }
+    const rt = await runtime();
+    const resources = await rt.templates.render(template, name, namespace ?? "default", vars);
+    for (const resource of resources) await rt.apply(resource);
+    await rt.reconcile();
+    console.log(`created ${name} from template ${template} (${resources.length} resources in ${namespace ?? "default"})`);
+}
+
+/** `hades new` with no args lists available templates. */
+async function listTemplates(): Promise<void> {
+    const rt = await runtime();
+    const templates = await rt.templates.list();
+    if (templates.length === 0) { console.log("No templates found."); return; }
+    console.log("Available templates (hades new <template> <name>):");
+    for (const t of templates) console.log(`  ${t}`);
 }
 
 async function remove(args: string[]): Promise<void> {
@@ -223,7 +264,7 @@ async function serve(args: string[]): Promise<void> {
     const rt = await runtime();
     await rt.reconcile();
     const port = Number(args[0] ?? process.env.PORT ?? 7347);
-    const server = createServer(rt);
+    const server = createServer(rt, existsSync(uiDir) ? uiDir : undefined);
     server.listen(port, () => console.log(`hades-api listening on :${port}, data=${dataDir}`));
     installShutdown(rt, server);
 }
@@ -263,7 +304,7 @@ async function controller(args: string[]): Promise<void> {
     console.log(`hades controller running (event-driven, resync every ${resyncMs}ms, data=${dataDir})`);
     // The control plane also serves the API on PORT (default 7347).
     const port = Number(process.env.PORT ?? 7347);
-    const server = createServer(rt);
+    const server = createServer(rt, existsSync(uiDir) ? uiDir : undefined);
     server.listen(port, () => console.log(`hades-api listening on :${port}, data=${dataDir}`));
     installShutdown(rt, server);
 }

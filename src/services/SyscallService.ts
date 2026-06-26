@@ -129,7 +129,70 @@ export class SyscallService {
         return approval?.status?.phase === "approved";
     }
 
+    /**
+     * Operator-level approval response (no agent subject). Used by the web
+     * console / API to let a human act on an approval without minting an
+     * agent identity. Records the decision as decidedBy 'operator'.
+     */
+    async respondApprovalAsOperator(namespace: string, name: string, decision: "approve" | "deny", note?: string): Promise<HadesResource> {
+        const approval = this.state.findByName("Approval", name, namespace);
+        if (!approval) throw new Error(`Approval ${namespace}/${name} not found`);
+        if (approval.status?.phase !== "requested") throw new Error(`Approval ${name} already ${approval.status?.phase}`);
+        approval.status = { ...approval.status, phase: decision === "approve" ? "approved" : "denied", decidedBy: "operator", decidedAt: new Date().toISOString(), note };
+        await this.state.save();
+        await this.events.append("system", "approval.responded", { approval: name, decision, by: "operator" });
+        return approval;
+    }
+
     /** os.emitArtifact — record an artifact reference in the event log. */
+    /**
+     * os.installPackages — declare Nix packages for the agent's hands image and
+     * trigger a rebuild. The agent owns its environment declaratively; the
+     * controller materializes a build Job (userland nix builder) and rolls the
+     * hands pod onto the new image. Requires the `installPackages` capability
+     * so a compromised agent can't pin arbitrary images.
+     */
+    async installPackages(subject: Partial<AgentSubject>, spec: Record<string, any>): Promise<HadesResource> {
+        const resolved = this.policy.resolveAgentSubject(subject);
+        this.policy.assert(resolved, "installPackages", { namespace: resolved.namespace });
+        if (!Array.isArray(spec.packages) || spec.packages.length === 0) throw new Error("installPackages requires a non-empty packages array");
+        const name = spec.name ?? `${resolved.name}-hands`;
+        const image: HadesResource = {
+            apiVersion: "hades.dev/v1alpha1",
+            kind: "HandsImage",
+            metadata: { namespace: resolved.namespace, name },
+            spec: { packages: spec.packages, ...(spec.builderImage ? { builderImage: spec.builderImage } : {}) },
+            status: { phase: "pending" },
+        };
+        await this.state.apply(image);
+        await this.events.append("system", "handsimage.requested", { image: name, agent: resolved.name, packages: spec.packages });
+        await this.audit(resolved, "installPackages", { packages: spec.packages });
+        return image;
+    }
+
+    /**
+     * os.publishSkill — expose an HTTP capability other agents call. Symmetric
+     * with attachConnector (consume) — this *exposes* an endpoint. The kernel
+     * wires a Service to the brain pod; the handler is userland. Gated by the
+     * `publishSkill` capability.
+     */
+    async publishSkill(subject: Partial<AgentSubject>, spec: Record<string, any>): Promise<HadesResource> {
+        const resolved = this.policy.resolveAgentSubject(subject);
+        this.policy.assert(resolved, "publishSkill", { namespace: resolved.namespace });
+        if (!spec.name) throw new Error("publishSkill requires a name");
+        const skill: HadesResource = {
+            apiVersion: "hades.dev/v1alpha1",
+            kind: "Skill",
+            metadata: { namespace: resolved.namespace, name: String(spec.name) },
+            spec: { agentRef: spec.agentRef ?? resolved.name, port: spec.port ?? 7349, ...(spec.path ? { path: spec.path } : {}), ...(spec.description ? { description: spec.description } : {}) },
+            status: { phase: "pending" },
+        };
+        await this.state.apply(skill);
+        await this.events.append("system", "skill.published", { skill: spec.name, agent: skill.spec?.agentRef });
+        await this.audit(resolved, "publishSkill", { name: spec.name });
+        return skill;
+    }
+
     async emitArtifact(subject: Partial<AgentSubject>, spec: Record<string, any>): Promise<HadesResource> {
         const resolved = this.policy.resolveAgentSubject(subject);
         this.policy.assert(resolved, "emitArtifact", { namespace: resolved.namespace });
@@ -151,7 +214,7 @@ export class SyscallService {
     /** List syscalls an agent is currently permitted (introspection). */
     permittedSyscalls(subject: Partial<AgentSubject>): string[] {
         const resolved = this.policy.resolveAgentSubject(subject);
-        const all = ["createSchedule", "spawnAgent", "createAgent", "createHome", "attachListener", "requestApproval", "respondApproval", "emitArtifact"];
+        const all = ["createSchedule", "spawnAgent", "createAgent", "createHome", "attachListener", "attachConnector", "installPackages", "publishSkill", "requestApproval", "respondApproval", "emitArtifact"];
         return all.filter((cap) => this.policy.can(resolved, cap, { namespace: resolved.namespace }).allowed);
     }
 
@@ -176,6 +239,9 @@ export const CAPABILITIES = [
     "createAgent",
     "createHome",
     "attachListener",
+    "attachConnector",
+    "installPackages",
+    "publishSkill",
     "requestApproval",
     "respondApproval",
     "emitArtifact",

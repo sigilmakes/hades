@@ -21,15 +21,19 @@ docker_build(
         'bin',
         'scripts',
         'examples',
+        'ui',
         'infra/docker/Dockerfile.api',
     ],
     live_update=[
-        fall_back_on(['./package.json', './package-lock.json', './tsconfig.json']),
+        fall_back_on(['./package.json', './package-lock.json', './tsconfig.json', './ui/package.json', './ui/package-lock.json']),
         sync('./src', '/app/src'),
         sync('./bin', '/app/bin'),
         sync('./scripts', '/app/scripts'),
-        # Rebuild dist/ on src change so the running pod picks up code edits.
-        run('npm run build', trigger='./src/**'),
+        # Rebuild dist/ (API) + ui/dist (SPA) on source changes so the running
+        # pod picks up code edits. The SPA is served statically by the API.
+        run('npm run build && cd ui && npm run build', trigger='./src/**'),
+        run('cd ui && npm run build', trigger='./ui/src/**'),
+        sync('./ui/dist', '/app/ui/dist'),
     ],
 )
 
