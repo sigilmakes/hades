@@ -33,6 +33,7 @@ export class SyscallService {
     async createAgent(subject: Partial<AgentSubject>, spec: Record<string, any>): Promise<HadesResource> {
         const resolved = this.policy.resolveAgentSubject(subject);
         this.policy.assert(resolved, "createAgent", { namespace: resolved.namespace });
+        this.policy.assertQuota(resolved.namespace, "Agent");
         if (!spec.name) throw new Error("createAgent requires a name");
         const namespace = this.assertOwnNamespace(spec.namespace, resolved.namespace);
         const agent: HadesResource = {
@@ -51,6 +52,7 @@ export class SyscallService {
     async createHome(subject: Partial<AgentSubject>, spec: Record<string, any>): Promise<HadesResource> {
         const resolved = this.policy.resolveAgentSubject(subject);
         this.policy.assert(resolved, "createHome", { namespace: resolved.namespace });
+        this.policy.assertQuota(resolved.namespace, "Home");
         if (!spec.name) throw new Error("createHome requires a name");
         const namespace = this.assertOwnNamespace(spec.namespace, resolved.namespace);
         const home: HadesResource = {
@@ -69,6 +71,7 @@ export class SyscallService {
     async attachListener(subject: Partial<AgentSubject>, spec: Record<string, any>): Promise<HadesResource> {
         const resolved = this.policy.resolveAgentSubject(subject);
         this.policy.assert(resolved, "attachListener", { namespace: resolved.namespace });
+        this.policy.assertQuota(resolved.namespace, "Listener");
         if (!spec.name) throw new Error("attachListener requires a name");
         const namespace = this.assertOwnNamespace(spec.namespace, resolved.namespace);
         const listener: HadesResource = {
