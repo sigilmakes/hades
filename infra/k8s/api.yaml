@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: hades-system
+  name: hades-api
+  labels:
+    app.kubernetes.io/name: hades
+    app.kubernetes.io/component: control-plane
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hades-api
+  template:
+    metadata:
+      labels:
+        app: hades-api
+        role: control-plane
+    spec:
+      serviceAccountName: hades-controller
+      containers:
+        - name: hades-api
+          image: hades-api:latest
+          imagePullPolicy: Never
+          command: ["node", "dist/cli.js", "controller", "5000"]
+          ports:
+            - containerPort: 7347
+              name: http
+          env:
+            - name: HADES_DATA_DIR
+              value: /var/lib/hades
+            - name: HADES_KUBE
+              value: "1"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/hades
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+      volumes:
+        - name: data
+          # Single-node dev. For multi-node, swap to a shared StorageClass
+          # (longhorn/nfs/cephfs) — see infra/README.md.
+          persistentVolumeClaim:
+            claimName: hades-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: hades-system
+  name: hades-api
+spec:
+  selector:
+    app: hades-api
+  ports:
+    - port: 7347
+      targetPort: 7347
+      name: http

@@ -54,7 +54,7 @@ The same kernel runs with pod-backed adapters behind the same ports. The
 controller reconciles Hades custom resources into native Kubernetes objects
 (Deployments for brains, PVCs for homes, CronJobs for schedules,
 NetworkPolicies for capability projection). See
-[`deploy/README.md`](deploy/README.md).
+[`infra/README.md`](infra/README.md).
 
 ## Documentation
 

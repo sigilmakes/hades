@@ -116,12 +116,12 @@ get no capabilities by default; the spawner may grant a narrow subset.
 
 ```bash
 # Install CRDs, namespace, RBAC, and the data PVC
-kubectl apply -f deploy/crds/hades.dev_resources.yaml
-kubectl apply -f deploy/namespace-rbac.yaml
+kubectl apply -f infra/k8s/crds/hades.dev_resources.yaml
+kubectl apply -f infra/k8s/namespace-rbac.yaml
 
 # Run the controller. HADES_KUBE=1 uses the real cluster client.
 HADES_MODE=distributed HADES_KUBE=1 ./bin/hades controller
 ```
 
-See [`deploy/README.md`](../deploy/README.md) for the controller reconciliation
+See [`infra/README.md`](../infra/README.md) for the controller reconciliation
 table and node-count-agnostic storage notes.

@@ -88,7 +88,10 @@ export class KubeController {
         const secretRef = agent.spec?.brain?.secretRef;
         const brainEnv = [
             { name: "HADES_SESSION_ID", value: agent.spec?.defaultSession ?? `${name}-default` },
-            { name: "HADES_HANDS_URL", value: `http://hands-${name}.${ns}.svc.cluster.local` },
+            // The brain execs into the hands pod via the in-cluster k8s API.
+            // PodHandsBackend resolves the pod name from the agent + namespace.
+            { name: "HADES_AGENT_NAME", value: name },
+            { name: "HADES_AGENT_NAMESPACE", value: ns },
         ];
         const brain: KubeObject = {
             apiVersion: "apps/v1",
@@ -102,7 +105,8 @@ export class KubeController {
                     spec: {
                         containers: [{
                             name: "brain",
-                            image: agent.spec?.brain?.image ?? "ghcr.io/hades-dev/hades-brain:dev",
+                            image: agent.spec?.brain?.image ?? "hades-brain:latest",
+                            imagePullPolicy: "Never",
                             ports: [{ containerPort: 7349 }],
                             env: brainEnv,
                             // Model credentials are mounted as a Secret envFrom, never into hands.
@@ -151,8 +155,11 @@ export class KubeController {
                     spec: {
                         containers: [{
                             name: "hands",
-                            image: hands.spec?.image ?? "ghcr.io/hades-dev/hades-hands:dev",
-                            ports: [{ containerPort: 7350 }],
+                            image: hands.spec?.image ?? "hades-hands:latest",
+                            imagePullPolicy: "Never",
+                            // The hands pod is a thin sandbox: sleep infinity. The brain
+                            // execs read/write/exec into it via the k8s API. No server, no port.
+                            command: ["sleep", "infinity"],
                             env: [{ name: "HADES_HOME_ROOT", value: "/home/agent" }],
                             volumeMounts: [{ name: "home", mountPath: "/home/agent" }],
                         }],
@@ -161,14 +168,10 @@ export class KubeController {
                 },
             },
         };
-        const handsSvc: KubeObject = {
-            apiVersion: "v1",
-            kind: "Service",
-            metadata: { name: `hands-${agentName}`, namespace: ns, labels: hadesLabels(hands), ownerReferences: [ownerRef] },
-            spec: { selector: { "hades.dev/agent": agentName, "hades.dev/role": "hands" }, ports: [{ port: 80, targetPort: 7350 }] },
-        };
+        // No Service: the brain reaches the hands pod via k8s exec (in-cluster SA),
+        // not over HTTP. The NetworkPolicy still isolates the pod.
         // NetworkPolicy: the capability boundary as k8s network policy.
-        // brain pod -> hands pod only; hands pod -> nothing (no model creds, no egress).
+        // brain pod -> hands pod only (exec); hands pod -> nothing (no egress).
         const handsNetPol: KubeObject = {
             apiVersion: "networking.k8s.io/v1",
             kind: "NetworkPolicy",
@@ -177,8 +180,8 @@ export class KubeController {
                 podSelector: { matchLabels: { "hades.dev/agent": agentName, "hades.dev/role": "hands" } },
                 policyTypes: ["Ingress", "Egress"],
                 ingress: [
-                    // Only the brain pod for this agent may reach the hands pod.
-                    { from: [{ podSelector: { matchLabels: { "hades.dev/agent": agentName, "hades.dev/role": "brain" } } }], ports: [{ port: 7350 }] },
+                    // The brain reaches the hands pod via k8s exec (in-cluster SA),
+                    // not over a port. No ingress is needed; default-deny.
                 ],
                 egress: [
                     // Hands pods have no egress by default — no model creds, no internet.
@@ -187,7 +190,6 @@ export class KubeController {
             },
         };
         await this.kube.ensure(ns, handsDep);
-        await this.kube.ensure(ns, handsSvc);
         await this.kube.ensure(ns, handsNetPol);
         await this.events.append("system", "hands.reconciled", { hands: name, namespace: ns, deployment: `hands-${agentName}` });
         await this.patchStatus(hands, { phase: "ready", podName: `hands-${agentName}` });
@@ -218,7 +220,7 @@ export class KubeController {
                             spec: {
                                 containers: [{
                                     name: "trigger",
-                                    image: "ghcr.io/hades-dev/hades-cli:dev",
+                                    image: "hades-api:latest",
                                     command: ["node", "dist/cli.js", "say", `${ns}/${agentName}`, schedule.spec?.prompt ?? "scheduled"],
                                 }],
                                 restartPolicy: "OnFailure",

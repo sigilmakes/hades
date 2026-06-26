@@ -101,11 +101,11 @@ test("hades controller command boots and reports the reconcile interval", () => 
 
 test("deploy manifests use only standard k8s API objects — no hostPath", async () => {
     const { readFile } = await import("node:fs/promises");
-    for (const file of ["namespace-rbac.yaml", "local.yaml"]) {
-        const raw = await readFile(path.resolve("deploy", file), "utf8");
+    for (const file of ["namespace-rbac.yaml", "api.yaml"]) {
+        const raw = await readFile(path.resolve("infra/k8s", file), "utf8");
         assert.equal(raw.includes("hostPath:"), false, `${file} must not use hostPath`);
     }
-    const rbac = await readFile(path.resolve("deploy", "namespace-rbac.yaml"), "utf8");
+    const rbac = await readFile(path.resolve("infra/k8s", "namespace-rbac.yaml"), "utf8");
     assert.ok(rbac.includes("kind: Namespace"));
     assert.ok(rbac.includes("kind: ClusterRole"));
     assert.ok(rbac.includes("kind: PersistentVolumeClaim"));

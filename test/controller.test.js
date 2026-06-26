@@ -123,7 +123,7 @@ test("controller reconcile is idempotent (re-running produces no duplicates)", a
     assert.equal(brainDeps.length, 1, "only one brain Deployment despite multiple reconciles");
     assert.equal(handsDeps.length, 1, "only one hands Deployment despite multiple reconciles");
     const svcs = await kube.list(NS, "Service");
-    assert.equal(svcs.length, 2, "brain + hand services");
+    assert.equal(svcs.length, 1, "only the brain Service (hands are exec-into pods, no Service)");
 });
 
 test("controller stamps hades labels on every owned object", async () => {
@@ -151,9 +151,8 @@ test("controller reconciles a NetworkPolicy that isolates hands pods (capability
     const netpol = kube.get(NS, "NetworkPolicy", "hands-jay-netpol");
     assert.ok(netpol, "hands NetworkPolicy should be ensured");
     assert.deepEqual(netpol.spec.policyTypes, ["Ingress", "Egress"]);
-    // Ingress: only the brain pod for this agent may reach hands.
-    const ingress = netpol.spec.ingress[0];
-    assert.deepEqual(ingress.from[0].podSelector.matchLabels, { "hades.dev/agent": "jay", "hades.dev/role": "brain" });
+    // No ingress: the brain reaches hands via k8s exec (in-cluster SA), not over a port.
+    assert.equal(netpol.spec.ingress.length, 0);
     // Egress: default-deny (no model creds, no internet from hands).
     assert.equal(netpol.spec.egress.length, 0);
 });

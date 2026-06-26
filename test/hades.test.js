@@ -469,7 +469,7 @@ test("candidate primitive resources are not accepted before behavior exists", as
     const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
     const runtime = await (await createRuntime(dir)).init();
     const candidateKinds = ["Gateway", "Node", "ToolProvider", "Workflow", "ExternalSession", "SandboxProfile", "SecretLease"];
-    const crds = await readFile(path.resolve("deploy/crds/hades.dev_resources.yaml"), "utf8");
+    const crds = await readFile(path.resolve("infra/k8s/crds/hades.dev_resources.yaml"), "utf8");
     for (const kind of candidateKinds) {
         await assert.rejects(
             runtime.apply({ kind, metadata: { namespace: "hades-system", name: "candidate" }, spec: {} }),
