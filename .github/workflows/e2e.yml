@@ -1,0 +1,57 @@
+name: E2E (kind)
+
+# The full distributed-path e2e: bring up kind, install the Helm chart, create
+# an agent, assert the brain pod reaches Running + a home write lands on the
+# PVC. Slower than the unit suite, so it runs on PRs (when this workflow or the
+# chart/controller change) and on manual dispatch — not every push to main.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'charts/**'
+      - 'infra/**'
+      - 'scripts/e2e-kind.sh'
+      - '.github/workflows/e2e.yml'
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kind-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check + build
+        run: npm run build
+
+      - name: Unit tests (gate before the slower e2e)
+        run: npm test
+
+      # kind + Helm + kubectl via the official setup actions (no nix in CI).
+      - name: Install kind
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: hades-e2e
+          wait: 60s
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Run the kind e2e
+        env:
+          HADES_E2E_CLUSTER: hades-e2e
+          KEEP_CLUSTER: "0"
+        run: scripts/e2e-kind.sh

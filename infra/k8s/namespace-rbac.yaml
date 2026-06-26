@@ -76,6 +76,10 @@ rules:
       - runs
       - approvals
       - capabilitygrants
+      - connectors
+      - handsimages
+      - skills
+      - namespacequotas
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["hades.dev"]
     resources: ["*/status"]

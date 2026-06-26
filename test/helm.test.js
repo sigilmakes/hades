@@ -51,7 +51,23 @@ test("helm chart renders the core control-plane resources", { skip: !HAS_HELM },
 test("helm chart renders all Hades CRDs", { skip: !HAS_HELM }, () => {
   const out = render();
   const crdCount = (out.match(/^kind: CustomResourceDefinition$/gm) || []).length;
-  assert.ok(crdCount >= 11, `renders all 11 CRDs (got ${crdCount})`);
+  assert.ok(crdCount >= 15, `renders all 15 CRDs (got ${crdCount})`);
+});
+
+// Guard against the recurring bug where a new Hades kind is added to the
+// controller's HADES_KINDS list but the controller ClusterRole isn't updated
+// to grant access to it — reconcile then 403s against a live cluster. The
+// reconciled kinds are mirrored from src/controller/KubeController.ts.
+test("controller ClusterRole grants access to every reconciled Hades kind", { skip: !HAS_HELM }, () => {
+  const out = render();
+  const controllerRole = docs(out).find((d) => /^kind: ClusterRole$/m.test(d) && d.includes("name: hades-controller"));
+  assert.ok(controllerRole, "controller ClusterRole rendered");
+  const hadesRule = controllerRole.match(/apiGroups: \["hades\.dev"\][\s\S]*?verbs:/);
+  assert.ok(hadesRule, "hades.dev rule present");
+  const rule = hadesRule[0];
+  for (const plural of ["agents", "hands", "listeners", "schedules", "connectors", "handsimages", "skills", "namespacequotas"]) {
+    assert.ok(rule.includes(plural), `controller may reconcile ${plural}`);
+  }
 });
 
 test("helm values override the image and storage size", { skip: !HAS_HELM }, () => {

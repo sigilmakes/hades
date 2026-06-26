@@ -5,7 +5,7 @@ Hades runs as native Kubernetes resources. There are two install paths:
 ```mermaid
 flowchart LR
   subgraph install["Install"]
-    Helm["helm install hades<br/>charts/hades"] --> CRDs["11 CRDs"]
+    Helm["helm install hades<br/>charts/hades"] --> CRDs["15 CRDs"]
     Helm --> RBAC["ServiceAccounts<br/>+ ClusterRoles"]
     Helm --> API["API Deployment<br/>+ Service + PVC"]
   end
@@ -18,7 +18,7 @@ flowchart LR
 helm install hades ./charts/hades --namespace hades-system --create-namespace
 ```
 
-This installs the 11 CRDs, the controller/API `ServiceAccount` + `ClusterRole`s,
+This installs the 15 CRDs, the controller/API `ServiceAccount` + `ClusterRole`s,
 the brain-pod exec `ServiceAccount`, the data `PersistentVolumeClaim`, and the
 `hades-api` `Deployment` + `Service`. The API serves the web UI at `/` when the
 image is built with it (see [Dockerfile.api](../infra/docker/Dockerfile.api)).

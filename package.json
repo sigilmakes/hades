@@ -33,6 +33,10 @@
     "matrix-js-sdk": "^41.8.0",
     "pg": "^8.22.0"
   },
+  "optionalDependencies": {
+    "pino": "^9.5.0",
+    "pino-pretty": "^11.2.2"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/js-yaml": "^4.0.9",
