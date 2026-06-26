@@ -18,6 +18,8 @@ import type { BrainDriver } from "../ports/BrainDriver.js";
 import type { HandsResolver } from "../ports/HandsResolver.js";
 import type { StateStorePort } from "../ports/StateStore.js";
 import type { EventStorePort } from "../ports/EventStore.js";
+import type { KubeClient } from "../ports/KubeClient.js";
+import { KubeController } from "../controller/KubeController.js";
 import type { HadesResource } from "../domain/resources.js";
 import { nameOf } from "../domain/resources.js";
 
@@ -38,20 +40,45 @@ export class NotImplementedError extends Error {
 
 /**
  * The deploy-mode runtime: the same kernel as {@link LocalRuntime} but with
- * pod-backed adapters behind the same ports (D4). In P0 the default adapters
- * are the dev ones so the shared kernel is testable end-to-end; each
- * subsequent phase swaps a stub adapter for a real pod-backed one via
- * {@link createDistributedRuntime} options.
+ * pod-backed adapters behind the same ports (D4). When a {@link KubeClient} is
+ * provided, reconcile also runs the {@link KubeController} to ensure native k8s
+ * objects (Deployments for brains, PVCs for homes, CronJobs for schedules) —
+ * the deploy-mode equivalent of the in-process {@link Reconciler}.
  *
  * Constructed by `hades controller` (see the CLI).
  */
 export class DistributedRuntime extends Runtime {
     override readonly mode = "distributed" as const;
+    private readonly kubeController?: KubeController;
+
+    constructor(
+        override readonly dataDir: string,
+        override readonly state: StateStorePort,
+        override readonly events: EventStorePort,
+        override readonly agents: AgentService,
+        override readonly brain: BrainService,
+        override readonly messages: MessageService,
+        override readonly schedules: ScheduleService,
+        override readonly primitives: PrimitiveService,
+        override readonly policy: PolicyService,
+        override readonly homes: HomeService,
+        override readonly listeners: ListenerService,
+        override readonly reconciler: Reconciler,
+        kubeClient?: KubeClient,
+    ) {
+        super(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler);
+        this.kubeController = kubeClient ? new KubeController(state, events, kubeClient) : undefined;
+    }
 
     override async init(): Promise<this> {
         await this.state.init();
         await this.events.init();
         return this;
+    }
+
+    override async reconcile(): Promise<void> {
+        await super.reconcile();
+        if (this.kubeController) await this.kubeController.reconcile();
     }
 }
 
@@ -78,7 +105,7 @@ export function createDistributedRuntime(dataDir: string, options: DistributedRu
     const listeners = new ListenerService(state, events);
     const primitives = new PrimitiveService();
     const reconciler = new Reconciler(state, homes, agents, listeners, schedules, messages);
-    runtime = new DistributedRuntime(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler);
+    runtime = new DistributedRuntime(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler, options.kubeClient);
     return runtime;
 }
 
@@ -123,4 +150,5 @@ export type DistributedRuntimeOptions = {
     eventStore?: EventStorePort;
     brainDriverFactory?: (mode: BrainMode) => BrainDriver;
     handsResolver?: HandsResolver;
+    kubeClient?: KubeClient;
 };
