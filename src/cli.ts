@@ -5,13 +5,16 @@ import { createServer } from "./adapters/api/server.js";
 import { loadManifest } from "./adapters/manifest.js";
 import { dataDirFromEnv } from "./adapters/store/JsonStateStore.js";
 import { parsePrimitiveDecision } from "./domain/primitives.js";
-import { createRuntime, type LocalRuntime } from "./runtime/LocalRuntime.js";
+import { createDistributedRuntime } from "./runtime/DistributedRuntime.js";
+import { createRuntime } from "./runtime/LocalRuntime.js";
+import type { Runtime } from "./runtime/Runtime.js";
 import { PrimitiveService } from "./services/PrimitiveService.js";
 
 const [rawCommand = "help", ...args] = process.argv.slice(2);
 const command = rawCommand === "--help" || rawCommand === "-h" ? "help" : rawCommand;
 const dataDir = dataDirFromEnv();
-let runtimePromise: Promise<LocalRuntime> | undefined;
+const distributed = process.env.HADES_MODE === "distributed";
+let runtimePromise: Promise<Runtime> | undefined;
 
 try {
     if (command === "help") help();
@@ -23,6 +26,7 @@ try {
     else if (command === "state") console.log(JSON.stringify(await (await runtime()).snapshot(), null, 4));
     else if (command === "primitives") await primitives(args[0]);
     else if (command === "serve") await serve(args);
+    else if (command === "controller") await controller(args);
     else if (command === "demo") await demo();
     else throw new Error(`Unknown command ${command}`);
 } catch (error) {
@@ -44,6 +48,8 @@ Commands:
   primitives [decision]        list researched AgentOS primitives
                                decision: adopt, defer, or reject
   serve [port]                 start the Hades API server
+  controller [intervalMs]      run the distributed reconcile loop
+                               (deploy mode; set HADES_MODE=distributed)
   demo [manifest] [agent]      run a local loop using a manifest
                                default uses offline test demo manifest
 
@@ -54,11 +60,13 @@ Message options:
 Environment:
   HADES_DATA_DIR               state directory (default ./.hades)
   HADES_BRAIN_MODE             pi-sdk (default) or test (offline/tests)
+  HADES_MODE                   distributed (deploy mode) or unset (dev)
+  HADES_RECONCILE_INTERVAL_MS  controller loop interval (default 5000)
 `);
 }
 
-async function runtime(): Promise<LocalRuntime> {
-    runtimePromise ??= createRuntime(dataDir).init();
+async function runtime(): Promise<Runtime> {
+    runtimePromise ??= (distributed ? createDistributedRuntime(dataDir).init() : createRuntime(dataDir).init());
     return runtimePromise;
 }
 
@@ -107,7 +115,18 @@ async function serve(args: string[]): Promise<void> {
     await rt.reconcile();
     const port = Number(args[0] ?? process.env.PORT ?? 7347);
     const server = createServer(rt);
-    server.listen(port, () => console.log(`hades-api listening on :${port}, data=${dataDir}`));
+    server.listen(port, () => console.log(`hades-api listening on :${port}, mode=${rt.mode}, data=${dataDir}`));
+}
+
+async function controller(args: string[]): Promise<void> {
+    const rt = await runtime();
+    const intervalMs = Number(args[0] ?? process.env.HADES_RECONCILE_INTERVAL_MS ?? 5000);
+    if (rt.mode !== "distributed") console.warn(`hades controller: running in '${rt.mode}' mode; set HADES_MODE=distributed for deploy mode`);
+    await rt.reconcile();
+    console.log(`hades controller reconciling every ${intervalMs}ms (mode=${rt.mode}, data=${dataDir})`);
+    setInterval(() => {
+        rt.reconcile().catch((error) => console.error(`reconcile failed: ${error instanceof Error ? error.message : error}`));
+    }, intervalMs);
 }
 
 async function demo(): Promise<void> {

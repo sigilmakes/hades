@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hades-system
+  labels:
+    app.kubernetes.io/name: hades
+    app.kubernetes.io/part-of: hades
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hades-controller
+  namespace: hades-system
+  labels:
+    app.kubernetes.io/name: hades
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hades-controller
+  labels:
+    app.kubernetes.io/name: hades
+rules:
+  # Hades CRDs (all kinds) — the controller reads/writes desired + status.
+  - apiGroups: ["hades.dev"]
+    resources:
+      - agents
+      - agentclasses
+      - homes
+      - sessions
+      - brainbindings
+      - hands
+      - listeners
+      - schedules
+      - runs
+      - approvals
+      - capabilitygrants
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["hades.dev"]
+    resources: ["*/status"]
+    verbs: ["get", "patch", "update"]
+  # CRD management itself (install/upgrade the schema).
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+  # Reconcile into native k8s objects: Deployments (brains), Jobs/CronJobs,
+  # PVCs (homes), Services (ClusterIP), NetworkPolicy, Secrets.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs", "jobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "services", "persistentvolumeclaims", "secrets", "configmaps", "events"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hades-controller
+  labels:
+    app.kubernetes.io/name: hades
+subjects:
+  - kind: ServiceAccount
+    name: hades-controller
+    namespace: hades-system
+roleRef:
+  kind: ClusterRole
+  name: hades-controller
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hades-data
+  namespace: hades-system
+  labels:
+    app.kubernetes.io/name: hades
+spec:
+  # StorageClass is intentionally unset here so the cluster default applies.
+  # Swap to a shared class (longhorn/nfs/cephfs) for multi-node — see
+  # deploy/README.md. local-path is fine for single-node k3s dev.
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi

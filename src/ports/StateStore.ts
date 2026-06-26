@@ -7,6 +7,8 @@ export interface StateStorePort {
     save(): Promise<void>;
     apply(resource: HadesResource): Promise<HadesResource>;
     patch(kind: HadesKind, namespace: string, name: string, patch: Partial<HadesResource>): Promise<HadesResource>;
+    /** Remove a resource. Returns true if it existed. */
+    remove(kind: HadesKind, namespace: string, name: string): Promise<boolean>;
     get(kind: HadesKind, namespace: string, name: string): HadesResource | undefined;
     list(kind: HadesKind, namespace?: string): HadesResource[];
     findByName(kind: HadesKind, name: string, namespace?: string): HadesResource | undefined;

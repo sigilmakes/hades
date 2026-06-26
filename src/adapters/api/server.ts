@@ -1,8 +1,8 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { parsePrimitiveDecision } from "../../domain/primitives.js";
-import type { LocalRuntime } from "../../runtime/LocalRuntime.js";
+import type { Runtime } from "../../runtime/Runtime.js";
 
-export function createServer(runtime: LocalRuntime): http.Server {
+export function createServer(runtime: Runtime): http.Server {
     return http.createServer(async (req, res) => {
         try {
             const url = new URL(req.url ?? "/", "http://localhost");

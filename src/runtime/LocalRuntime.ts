@@ -1,4 +1,4 @@
-import { type AgentSubject, type HadesResource, type HadesState, nameOf, namespaceOf } from "../domain/resources.js";
+import { type HadesResource, type HadesState, nameOf, namespaceOf } from "../domain/resources.js";
 import { JsonlEventStore } from "../adapters/store/JsonlEventStore.js";
 import { JsonStateStore } from "../adapters/store/JsonStateStore.js";
 import { LocalConfinedHands } from "../adapters/hands/LocalConfinedHands.js";
@@ -13,121 +13,62 @@ import { PolicyService } from "../services/PolicyService.js";
 import { PrimitiveService } from "../services/PrimitiveService.js";
 import { Reconciler } from "../services/Reconciler.js";
 import { ScheduleService } from "../services/ScheduleService.js";
+import { Runtime } from "./Runtime.js";
+import type { HandsResolver } from "../ports/HandsResolver.js";
+import type { BrainDriver } from "../ports/BrainDriver.js";
+import type { HandsBackend } from "../ports/HandsBackend.js";
 
 export type SpawnResult = { agent: HadesResource; reply: string };
 
-export class LocalRuntime {
-    constructor(
-        readonly dataDir: string,
-        readonly state: JsonStateStore,
-        readonly events: JsonlEventStore,
-        readonly agents: AgentService,
-        readonly brain: BrainService,
-        readonly messages: MessageService,
-        readonly schedules: ScheduleService,
-        readonly primitives: PrimitiveService,
-        private readonly policy: PolicyService,
-        private readonly reconciler: Reconciler,
-    ) {}
+/**
+ * The dev-mode runtime: a single-process kernel with in-process adapters.
+ *
+ * This is the proven simulation. All squishy workloads (brain, hands) are
+ * in-process objects the kernel manages. Durable state is JSON + JSONL on disk.
+ *
+ * Code written against the shared {@link Runtime} services does not change when
+ * the workloads become pods in the distributed mode — the ports are the seam.
+ */
+export class LocalRuntime extends Runtime {
+    override readonly mode = "local" as const;
 
-    async init(): Promise<this> {
+    constructor(
+        override readonly dataDir: string,
+        override readonly state: JsonStateStore,
+        override readonly events: JsonlEventStore,
+        override readonly agents: AgentService,
+        override readonly brain: BrainService,
+        override readonly messages: MessageService,
+        override readonly schedules: ScheduleService,
+        override readonly primitives: PrimitiveService,
+        override readonly policy: PolicyService,
+        override readonly reconciler: Reconciler,
+        override readonly homes: HomeService,
+        override readonly listeners: ListenerService,
+    ) {
+        super(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler);
+    }
+
+    override async init(): Promise<this> {
         await this.state.init();
         await this.events.init();
         return this;
     }
+}
 
-    async apply(resource: HadesResource): Promise<HadesResource> {
-        const applied = await this.state.apply(resource);
-        await this.events.append("system", "resource.applied", {
-            kind: resource.kind,
-            namespace: applied.metadata?.namespace,
-            name: applied.metadata?.name,
+/**
+ * A {@link HandsResolver} that returns an in-process {@link LocalConfinedHands}
+ * bound to the agent's local home directory. This is the dev-mode resolver.
+ */
+class LocalHandsResolver implements HandsResolver {
+    constructor(private readonly agents: AgentService, private readonly events: JsonlEventStore) {}
+
+    for(agent: HadesResource, session: HadesResource): LocalConfinedHands {
+        return new LocalConfinedHands({
+            homeRoot: this.agents.homeRoot(agent),
+            events: this.events,
+            sessionId: nameOf(session),
         });
-        return applied;
-    }
-
-    async reconcile(): Promise<void> {
-        await this.reconciler.reconcile();
-    }
-
-    async messageAgent(agentName: string, text: string, options: { namespace?: string; origin?: Record<string, any> } = {}): Promise<{ run: HadesResource; reply: string }> {
-        return this.messages.messageAgent(agentName, text, options);
-    }
-
-    async createSchedule(subject: Partial<AgentSubject>, spec: Record<string, any>): Promise<HadesResource> {
-        return this.schedules.createOwnSchedule(subject, spec);
-    }
-
-    /**
-     * A resident agent spawns a throwaway (ephemeral) agent for one task.
-     * The kernel checks the `spawnAgent` capability, mints a confined ephemeral
-     * agent in the caller's namespace, runs the prompt once, reaps it, and
-     * returns the reply. Like a daemon forking a transient unit.
-     */
-    async spawnAgent(subject: Partial<AgentSubject>, spec: Record<string, any>): Promise<SpawnResult> {
-        const resolvedSubject = this.policy.resolveAgentSubject(subject);
-        this.policy.assert(resolvedSubject, "spawnAgent", { namespace: resolvedSubject.namespace });
-        if (!spec.name) throw new Error("spawnAgent requires a name");
-        if (spec.namespace && spec.namespace !== resolvedSubject.namespace) {
-            throw new Error(`spawnAgent cannot target another namespace: ${spec.namespace}`);
-        }
-        const namespace = resolvedSubject.namespace;
-        const ephemeralName = String(spec.name);
-        if (this.state.findByName("Agent", ephemeralName, namespace)) {
-            throw new Error(`Agent ${namespace}/${ephemeralName} already exists`);
-        }
-        const capabilities: string[] = Array.isArray(spec.capabilities) ? spec.capabilities : [];
-        const ephemeral: HadesResource = {
-            apiVersion: "hades.dev/v1alpha1",
-            kind: "Agent",
-            metadata: { namespace, name: ephemeralName },
-            spec: {
-                lifecycle: "ephemeral",
-                defaultSession: `${ephemeralName}-default`,
-                desiredState: "active",
-                brain: { mode: spec.brain?.mode ?? "test" },
-            },
-            status: { phase: "pending", spawnedBy: resolvedSubject.name },
-        };
-        await this.state.apply(ephemeral);
-        await this.events.append("system", "agent.spawned", { agent: ephemeralName, by: resolvedSubject.name, namespace });
-        // Optional narrow capability grant for the ephemeral worker.
-        if (capabilities.length > 0) {
-            await this.state.apply({
-                apiVersion: "hades.dev/v1alpha1",
-                kind: "CapabilityGrant",
-                metadata: { namespace, name: `${ephemeralName}-spawn-grant` },
-                spec: { subject: { kind: "Agent", name: ephemeralName }, capabilities, constraints: { namespace: "own" } },
-                status: { phase: "active" },
-            });
-        }
-        await this.reconcile();
-        let reply = "";
-        const grantName = capabilities.length > 0 ? `${ephemeralName}-spawn-grant` : undefined;
-        try {
-            reply = (await this.messages.messageAgent(ephemeralName, String(spec.prompt ?? ""), { namespace })).reply;
-        } finally {
-            // Always reap the ephemeral worker and clean up its grant, even if the run threw.
-            const reaped = this.state.findByName("Agent", ephemeralName, namespace);
-            if (reaped) {
-                reaped.status = { ...(reaped.status ?? {}), phase: "completed", reapedAt: new Date().toISOString() };
-                await this.state.save();
-                await this.events.append("system", "agent.reaped", { agent: ephemeralName, namespace, by: resolvedSubject.name });
-            }
-            if (grantName) {
-                const grant = this.state.findByName("CapabilityGrant", grantName, namespace);
-                if (grant) {
-                    grant.status = { ...(grant.status ?? {}), phase: "deleted" };
-                    delete this.state.state.CapabilityGrant[`${namespace}/${grantName}`];
-                    await this.state.save();
-                }
-            }
-        }
-        return { agent: this.state.findByName("Agent", ephemeralName, namespace) ?? ephemeral, reply };
-    }
-
-    async snapshot(): Promise<HadesState> {
-        return this.state.state;
     }
 }
 
@@ -137,21 +78,17 @@ export function createRuntime(dataDir: string): LocalRuntime {
     const agents = new AgentService(dataDir, state, events);
     const policy = new PolicyService(state);
     const schedules = new ScheduleService(state, events, policy);
-    const handsFor = (agent: HadesResource, session: HadesResource) => new LocalConfinedHands({
-        homeRoot: agents.homeRoot(agent),
-        events,
-        sessionId: nameOf(session),
-    });
+    const handsResolver = new LocalHandsResolver(agents, events);
     let runtime: LocalRuntime;
     const brain = new BrainService(events, (mode: BrainMode) => {
-        if (mode === "pi-sdk") return new PiSdkBrainDriver(events, (agent) => agents.homeRoot(agent), handsFor);
-        return new TestBrainDriver(events, handsFor, schedules, (subject, spec) => runtime.spawnAgent(subject, spec));
+        if (mode === "pi-sdk") return new PiSdkBrainDriver(events, (agent) => agents.homeRoot(agent), (a, s) => handsResolver.for(a, s));
+        return new TestBrainDriver(events, (a, s) => handsResolver.for(a, s), schedules, (subject, spec) => runtime.spawnAgent(subject, spec));
     });
     const messages = new MessageService(state, events, agents, brain);
     const homes = new HomeService(dataDir, state, events);
     const listeners = new ListenerService(state, events);
     const primitives = new PrimitiveService();
     const reconciler = new Reconciler(state, homes, agents, listeners, schedules, messages);
-    runtime = new LocalRuntime(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, reconciler);
+    runtime = new LocalRuntime(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, reconciler, homes, listeners);
     return runtime;
 }

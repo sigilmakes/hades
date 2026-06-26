@@ -53,6 +53,16 @@ export class JsonStateStore implements StateStorePort {
         return resource;
     }
 
+    async remove(kind: HadesKind, namespace: string, name: string): Promise<boolean> {
+        const key = `${namespace}/${name}`;
+        const existed = Boolean(this.state[kind]?.[key]);
+        if (existed) {
+            delete this.state[kind][key];
+            await this.save();
+        }
+        return existed;
+    }
+
     get(kind: HadesKind, namespace: string, name: string): HadesResource | undefined {
         return this.state[kind]?.[`${namespace}/${name}`];
     }
