@@ -166,7 +166,7 @@ export class SyscallService {
     /** List syscalls an agent is currently permitted (introspection). */
     permittedSyscalls(subject: Partial<AgentSubject>): string[] {
         const resolved = this.policy.resolveAgentSubject(subject);
-        const all = ["createSchedule", "spawnAgent", "createAgent", "createHome", "attachListener", "requestApproval", "respondApproval", "emitArtifact"];
+        const all = ["createSchedule", "spawnAgent", "createAgent", "createHome", "attachListener", "attachConnector", "requestApproval", "respondApproval", "emitArtifact"];
         return all.filter((cap) => this.policy.can(resolved, cap, { namespace: resolved.namespace }).allowed);
     }
 
@@ -191,6 +191,7 @@ export const CAPABILITIES = [
     "createAgent",
     "createHome",
     "attachListener",
+    "attachConnector",
     "requestApproval",
     "respondApproval",
     "emitArtifact",

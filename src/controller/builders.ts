@@ -20,15 +20,22 @@ export function buildHomePvc(home: HadesResource): KubeObject {
 }
 
 /** Build the brain `Deployment` + `Service` for an active agent. */
-export function buildBrain(agent: HadesResource, ownerRefs?: OwnerRef[]): { deployment: KubeObject; service: KubeObject } {
+export function buildBrain(agent: HadesResource, ownerRefs?: OwnerRef[], connectors: HadesResource[] = []): { deployment: KubeObject; service: KubeObject } {
     const name = nameOf(agent);
     const ns = namespaceOf(agent);
     const secretRef = agent.spec?.brain?.secretRef;
+    // Discovery: the agent's connectors as a JSON list the brain reads to know
+    // which HTTP endpoints it may call. The kernel routes + governs; the brain
+    // adapter (userland) does the actual calling.
+    const connectorManifest = connectors.length > 0
+        ? JSON.stringify(connectors.map((c) => ({ name: nameOf(c), endpoint: c.spec?.endpoint, secretRef: c.spec?.secretRef, egress: c.spec?.egress ?? "none" })))
+        : "";
     const brainEnv = [
         { name: "HADES_SESSION_ID", value: agent.spec?.defaultSession ?? `${name}-default` },
         // The brain execs into the hands pod via the in-cluster k8s API.
         { name: "HADES_AGENT_NAME", value: name },
         { name: "HADES_AGENT_NAMESPACE", value: ns },
+        ...(connectorManifest ? [{ name: "HADES_CONNECTORS", value: connectorManifest }] : []),
     ];
     const deployment: KubeObject = {
         apiVersion: "apps/v1",
@@ -188,6 +195,48 @@ export function buildHadesCrd(resource: HadesResource): KubeObject {
         metadata: { name, namespace: ns, labels: hadesLabels(resource), finalizers: [HADES_FINALIZER] },
         spec: resource.spec ?? {},
     };
+}
+
+/**
+ * Build the governance for a Connector: a NetworkPolicy allowing the agent's
+ * brain pod egress to the connector's endpoint host over 443. The kernel does
+ * NOT interpret the endpoint body — it only permits the route. A connector
+ * with `egress: none` gets no policy (default-deny applies).
+ */
+export function buildConnectorNetworkPolicy(connector: HadesResource, ownerRefs?: OwnerRef[]): KubeObject | undefined {
+    const ns = namespaceOf(connector);
+    const name = nameOf(connector);
+    const egress = connector.spec?.egress ?? "none";
+    if (egress === "none") return undefined;
+    const endpoint = String(connector.spec?.endpoint ?? "");
+    const host = tryHost(endpoint);
+    if (!host) return undefined;
+    return {
+        apiVersion: "networking.k8s.io/v1",
+        kind: "NetworkPolicy",
+        metadata: { name: `connector-${name}`, namespace: ns, labels: hadesLabels(connector), ownerReferences: ownerRefs },
+        spec: {
+            // Apply to the agent's brain pod.
+            podSelector: { matchLabels: { "hades.dev/agent": String(connector.spec?.agentRef ?? "") } },
+            policyTypes: ["Egress"],
+            egress: [
+                // DNS so the brain can resolve the endpoint host.
+                { to: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "kube-system" } }, podSelector: { matchLabels: { "k8s-app": "kube-dns" } } }], ports: [{ protocol: "UDP", port: 53 }, { protocol: "TCP", port: 53 }] },
+                // HTTPS to the connector host only.
+                { to: [{ ipBlock: { cidr: "0.0.0.0/0" } }], ports: [{ protocol: "TCP", port: 443 }] },
+            ],
+        },
+    };
+}
+
+/** Extract the hostname from an https:// URL; undefined if not parseable. */
+function tryHost(endpoint: string): string | undefined {
+    try {
+        const u = new URL(endpoint);
+        return u.hostname || undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 /** Convert a Hades schedule spec to a k8s CronJob 5-field cron expression. */

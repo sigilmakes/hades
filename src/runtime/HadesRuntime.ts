@@ -11,6 +11,7 @@ import { SyscallService } from "../services/SyscallService.js";
 import { SystemAgents } from "../services/SystemAgents.js";
 import { ProjectionService } from "../services/ProjectionService.js";
 import { TemplateService } from "../services/TemplateService.js";
+import { ConnectorService } from "../services/ConnectorService.js";
 import { LocalConfinedHands } from "../adapters/hands/LocalConfinedHands.js";
 import { PiSdkBrainDriver } from "../adapters/brain/PiSdkBrainDriver.js";
 import { TestBrainDriver } from "../adapters/brain/TestBrainDriver.js";
@@ -55,9 +56,10 @@ export class HadesRuntime extends Runtime {
         override readonly syscalls: SyscallService,
         override readonly projections: ProjectionService,
         override readonly templates: TemplateService,
+        override readonly connectors: ConnectorService,
         override readonly kubeClient?: KubeClient,
     ) {
-        super(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler, syscalls, projections, templates, kubeClient, kubeClient ? new KubeController(state, events, kubeClient) : undefined);
+        super(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler, syscalls, projections, templates, connectors, kubeClient, kubeClient ? new KubeController(state, events, kubeClient) : undefined);
     }
 
     override async init(): Promise<this> {
@@ -102,7 +104,8 @@ export async function createRuntime(dataDir: string, options: RuntimeOptions = {
     const syscalls = new SyscallService(state, events, policy);
     const projections = new ProjectionService(state, events);
     const templates = new TemplateService();
-    runtime = new HadesRuntime(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler, syscalls, projections, templates, options.kubeClient);
+    const connectors = new ConnectorService(state, events, policy);
+    runtime = new HadesRuntime(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler, syscalls, projections, templates, connectors, options.kubeClient);
     return runtime;
 }
 

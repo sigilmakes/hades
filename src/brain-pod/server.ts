@@ -79,9 +79,9 @@ export class BrainPod {
     }
 }
 
-function defaultDriver(mode: string, events: EventStorePort, hands: HandsBackend, homeRoot: string): BrainDriver {
+function defaultDriver(mode: string, events: EventStorePort, hands: HandsBackend, homeRoot: string, connectors?: { policy: import("../ports/Policy.js").PolicyPort; secrets: import("../adapters/brain/ConnectorToolRegistrar.js").SecretResolver }): BrainDriver {
     if (mode === "test") return new BrainPodTestDriver(events, hands);
-    if (mode === "pi-sdk") return new PiSdkBrainDriver(events, () => homeRoot, () => hands);
+    if (mode === "pi-sdk") return new PiSdkBrainDriver(events, () => homeRoot, () => hands, connectors);
     throw new Error(`Unknown brain mode ${mode}`);
 }
 

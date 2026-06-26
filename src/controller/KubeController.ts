@@ -3,7 +3,7 @@ import { HADES_FINALIZER, type KubeClient } from "../ports/KubeClient.js";
 import type { StateStorePort } from "../ports/StateStore.js";
 import type { EventStorePort } from "../ports/EventStore.js";
 import {
-    buildHands, buildHomePvc, buildBrain, buildSchedule, buildHadesCrd, egressForAgent, toCronExpression,
+    buildHands, buildHomePvc, buildBrain, buildSchedule, buildHadesCrd, buildConnectorNetworkPolicy, egressForAgent, toCronExpression,
     type OwnerRef,
 } from "./builders.js";
 
@@ -42,6 +42,7 @@ export class KubeController {
         for (const hands of this.state.list("Hands")) await this.reconcileHands(hands);
         for (const listener of this.state.list("Listener")) await this.reconcileListener(listener);
         for (const schedule of this.state.list("Schedule")) await this.reconcileSchedule(schedule);
+        for (const connector of this.state.list("Connector")) await this.reconcileConnector(connector);
     }
 
     /**
@@ -176,7 +177,10 @@ export class KubeController {
         }
 
         const ownerRefs = await this.ownerRefs(agent);
-        const { deployment, service } = buildBrain(agent, ownerRefs);
+        // Discover the agent's connectors so the brain pod receives its allowed
+        // HTTP endpoints as env (the kernel routes; the brain calls).
+        const connectors = this.state.list("Connector", ns).filter((c) => c.spec?.agentRef === nameOf(agent));
+        const { deployment, service } = buildBrain(agent, ownerRefs, connectors);
         await this.kube.ensure(ns, deployment);
         await this.kube.ensure(ns, service);
         await this.events.append("system", "agent.reconciled", { agent: name, namespace: ns, brain: `brain-${name}` });
@@ -226,6 +230,29 @@ export class KubeController {
         await this.events.append("system", "listener.reconciled", { listener: name, platform, hasSecret: Boolean(credentials) });
     }
 
+    /**
+     * Connector → egress NetworkPolicy (governance) + brain-env discovery.
+     *
+     * The kernel does not interpret the endpoint body — it only permits the
+     * route (NetworkPolicy to the endpoint host:443) and writes status. The
+     * brain learns the endpoint via env (handled at pod-apply time from the
+     * agent's connector list); here we ensure the network grant exists.
+     */
+    async reconcileConnector(connector: HadesResource): Promise<void> {
+        const ns = namespaceOf(connector);
+        const name = nameOf(connector);
+        if (await this.isDeleting(ns, "Connector", name)) return;
+        const ownerRef = await this.ownerRefOf(connector);
+        const policy = buildConnectorNetworkPolicy(connector, ownerRef ? [ownerRef] : undefined);
+        let reachable = false;
+        if (policy) {
+            await this.kube.ensure(ns, policy);
+            reachable = true;
+        }
+        await this.patchStatus(connector, { phase: "ready", reachable });
+        await this.events.append("system", "connector.reconciled", { connector: name, agent: String(connector.spec?.agentRef ?? ""), egress: connector.spec?.egress ?? "none", reachable });
+    }
+
     /** Schedule → k8s CronJob (replaces the in-process croner in deploy mode). */
     async reconcileSchedule(schedule: HadesResource): Promise<void> {
         if (await this.isDeleting(namespaceOf(schedule), "Schedule", nameOf(schedule))) return;
@@ -263,6 +290,6 @@ export class KubeController {
     }
 }
 
-const HADES_KINDS = ["Agent", "Home", "Hands", "Session", "BrainBinding", "Listener", "Schedule", "Run", "Approval", "CapabilityGrant", "AgentClass"] as const;
+const HADES_KINDS = ["Agent", "Home", "Hands", "Session", "BrainBinding", "Listener", "Schedule", "Run", "Approval", "CapabilityGrant", "AgentClass", "Connector", "NamespaceQuota"] as const;
 
 export { toCronExpression };
