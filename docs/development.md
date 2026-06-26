@@ -53,10 +53,11 @@ flowchart LR
     A1 & A2 & A3 & A4 & A5 -.-> D
 ```
 
-The runtime (`LocalRuntime` / `DistributedRuntime`) is the **composition root**:
+The runtime (`createRuntime` → `HadesRuntime`) is the **composition root**:
 the only place that knows which concrete adapters satisfy which ports. Services
-and domain code import only ports and other services. This is what lets the two
-runtimes share one kernel — the seam is the port, not a config flag.
+and domain code import only ports and other services. This is what lets the
+test substrate (in-process adapters) and a live cluster (pod-backed adapters)
+share one kernel — the seam is the port, not a config flag.
 
 ## The kernel analogy as engineering principle
 
@@ -105,9 +106,9 @@ mutable userland, or disposable execution? That triage determines the layer.
   builds its own fixture.
 - The dev runtime (`createRuntime`) is the test substrate. Tests never touch a
   real cluster — `FakeKubeClient` stands in for the `KubeController`.
-- **Never break the dev runtime.** It is the asset; the distributed runtime is
-  the same kernel with pod-backed adapters. If a test breaks the local path,
-  the kernel is wrong, not the test.
+- **Never break the test substrate.** It is how the kernel is exercised without
+  a cluster; the live-cluster path is the same kernel with pod-backed adapters.
+  If a test breaks the in-process path, the kernel is wrong, not the test.
 - Container-hands tests gate on `docker info`; they prove real isolation without
   requiring a daemon in CI.
 - Run: `npm test` (builds then `node --test`).
@@ -116,8 +117,9 @@ mutable userland, or disposable execution? That triage determines the layer.
 
 1. Find the port it satisfies (`HandsBackend`, `EventStorePort`, `KubeClient`…).
 2. Implement the port in `src/adapters/...`. Do not edit any service.
-3. Wire it at the composition root: `createRuntime` (local) and/or
-   `createDistributedRuntime` (deploy).
+3. Wire it at the composition root: `createRuntime` (the only factory).
+   Inject it through `RuntimeOptions` for both the test substrate and a live
+   cluster.
 4. Add a test that exercises it through the port, not through the adapter's
    internals.
 

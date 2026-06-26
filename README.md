@@ -44,17 +44,17 @@ Day-to-day from a checkout:
 - **`pi-sdk` (default)** — the real brain. Routes `hades_read`/`hades_write`/`hades_exec` through hands. Needs a working model in your environment — Hades bundles no model and assumes none.
 - **`test`** — offline directive brain for tests/demos. `HADES_BRAIN_MODE=test` or `spec.brain.mode: "test"`.
 
-## Distributed mode
+## Running the controller
 
 ```bash
-HADES_MODE=distributed HADES_KUBE=1 ./bin/hades controller
+HADES_KUBE=1 ./bin/hades controller
 ```
 
-The same kernel runs with pod-backed adapters behind the same ports. The
-controller reconciles Hades custom resources into native Kubernetes objects
-(Deployments for brains, PVCs for homes, CronJobs for schedules,
-NetworkPolicies for capability projection). See
-[`infra/README.md`](infra/README.md).
+The controller reconciles Hades custom resources into native Kubernetes
+objects (Deployments for brains, PVCs for homes, CronJobs for schedules,
+NetworkPolicies for capability projection). For local dev, `nix develop` then
+`scripts/dev-setup.sh && tilt up` runs the same path against a kind cluster.
+See [`infra/README.md`](infra/README.md).
 
 ## Documentation
 
@@ -72,7 +72,7 @@ src/services/    in-kernel subsystems: Agent/Home/Message/Schedule/Policy/Listen
                  Reconciler/Syscall/SystemAgents/Projection
 src/adapters/    JSON/SQLite stores, pi-SDK + test + HTTP brains,
                  LocalConfined/Container/HTTP/MCP hands, k8s clients, HTTP API
-src/runtime/     LocalRuntime + DistributedRuntime (composition roots)
+src/runtime/     HadesRuntime (the composition root) + Runtime base
 src/controller/  KubeController (CRDs → native k8s objects)
 src/brain-pod/   the brain pod HTTP server + CLI
 src/hands-pod/   the hands pod MCP server + CLI

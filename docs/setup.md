@@ -112,16 +112,20 @@ The worker is created as an `ephemeral` agent, run once, then reaped
 (`phase: completed`). Without the grant, the spawn is denied. Ephemeral workers
 get no capabilities by default; the spawner may grant a narrow subset.
 
-## Distributed mode
+## Dev loop (kind + Tilt)
+
+Dev is a kind cluster — there is no in-process production path.
 
 ```bash
-# Install CRDs, namespace, RBAC, and the data PVC
-kubectl apply -f infra/k8s/crds/hades.dev_resources.yaml
-kubectl apply -f infra/k8s/namespace-rbac.yaml
-
-# Run the controller. HADES_KUBE=1 uses the real cluster client.
-HADES_MODE=distributed HADES_KUBE=1 ./bin/hades controller
+nix develop                     # node 24, kind, kubectl, tilt
+npm install
+bash scripts/dev-setup.sh        # creates the kind cluster
+tilt up                          # builds images, applies manifests, live-updates
 ```
 
-See [`infra/README.md`](../infra/README.md) for the controller reconciliation
-table and node-count-agnostic storage notes.
+- API: http://localhost:7347
+- Tilt dashboard: http://localhost:10350
+
+`tilt down` stops services; `kind delete cluster --name hades` tears down the
+cluster. See [`infra/README.md`](../infra/README.md) for the controller
+reconciliation table and node-count-agnostic storage notes.

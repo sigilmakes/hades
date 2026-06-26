@@ -74,39 +74,41 @@ flowchart LR
 | per-process home dir / cgroup | **Home** — persistent agent userland |
 | driver code in kernel context | **hands** — the sandbox where untrusted code runs |
 
-## Two runtimes, one kernel
+## One runtime, swappable adapters
 
-The kernel services are mode-agnostic: they depend on **ports**, never on
-concrete adapters. Only the substrate differs between the two runtimes:
+Hades is one k8s-native kernel. There is no "dev mode" or "deploy mode" —
+brains and hands are pods. The kernel services depend on **ports**, never on
+concrete adapters; the composition root (`createRuntime`) selects which
+adapters satisfy the ports. In-process adapters exist only as a test substrate
+(they let the kernel run without a cluster); a live cluster injects pod-backed
+adapters through the same options.
 
 ```mermaid
 flowchart LR
-    subgraph local["Local runtime (dev)"]
-        L1["one process"]
-        L2["in-process brain/hands"]
-        L3["JSON + JSONL on disk"]
+    KERNEL["HadesRuntime<br/>(one kernel, same services)"]
+    subgraph test["test substrate (in-process)"]
+        T1["in-process brain/hands"]
+        T2["sqlite on disk"]
     end
-    subgraph dist["Distributed runtime (deploy)"]
-        D1["control-plane Deployment"]
-        D2["brain/hands pods"]
-        D3["SQLite on PVC / Postgres"]
-        D4["KubeController"]
+    subgraph live["live cluster (pods)"]
+        L1["brain pods + hands pods"]
+        L2["sqlite on PVC / Postgres"]
+        L3["KubeController"]
     end
-    KERNEL["shared Runtime base<br/>(same services, same ports)"]
-    KERNEL --> local
-    KERNEL --> dist
+    KERNEL --> test
+    KERNEL --> live
 ```
 
-| Concern | Local | Distributed |
-|---------|-------|-------------|
+| Concern | Test substrate | Live cluster |
+|---------|----------------|--------------|
 | brain | in-process `PiSdkBrainDriver` | `HttpBrainDriver` → brain pod |
-| hands | in-process `LocalConfinedHands` | `McpHandsClient` → hands pod |
+| hands | in-process `LocalConfinedHands` | `PodHandsBackend` → exec into hands pod |
 | state | `JsonStateStore` | `SqliteStateStore` (Postgres target) |
 | events | `JsonlEventStore` | `SqliteEventStore` |
 | reconcile | in-process `Reconciler` | + `KubeController` → native k8s objects |
 
-Code written against the `Runtime` services does not change when the workloads
-become pods — the ports are the seam.
+Dev runs the live-cluster path against a local kind cluster via Tilt. The
+in-process adapters are test injections, not a runtime variant.
 
 ## The privilege ladder
 
@@ -137,7 +139,7 @@ src/services/    in-kernel subsystems: Agent/Home/Message/Schedule/Policy/
                  Listener/Reconciler/Syscall/SystemAgents/Projection
 src/adapters/    JSON/SQLite stores, pi-SDK + test + HTTP brains,
                  LocalConfined/Container/HTTP/MCP hands, k8s clients, HTTP API
-src/runtime/     LocalRuntime + DistributedRuntime (composition roots)
+src/runtime/     HadesRuntime (the composition root) + Runtime base
 src/controller/  KubeController (CRDs → native k8s objects)
 src/brain-pod/   the brain pod HTTP server + CLI
 src/hands-pod/   the hands pod MCP server + CLI

@@ -11,7 +11,7 @@ against the codebase; where something is planned but not built, it is marked
 ## Documents
 
 - [`01-thesis.md`](01-thesis.md) — what Hades is and what it provides.
-- [`02-architecture.md`](02-architecture.md) — the kernel, the two runtimes, and the object graph.
+- [`02-architecture.md`](02-architecture.md) — the kernel, the runtime, and the object graph.
 - [`03-resources.md`](03-resources.md) — the custom resources and their schemas.
 - [`04-brain-and-session.md`](04-brain-and-session.md) — brain pods, the durable session log, wake/sleep.
 - [`05-hands-and-tools.md`](05-hands-and-tools.md) — hands pods, the sandbox ladder, the MCP tool wire.

@@ -12,7 +12,7 @@ flowchart LR
     end
     subgraph real["real isolation"]
         C["ContainerHands<br/>disposable docker container<br/>permissive profile"]
-        P["hands pod<br/>k8s pod + NetworkPolicy<br/>(deploy mode)"]
+        P["hands pod<br/>k8s pod + NetworkPolicy"]
     end
     L -->|swap profile + adapter| C
     C -->|substrate = pod| P
@@ -35,40 +35,42 @@ contain them. A container-backed profile allows them because the container
 
 ```mermaid
 sequenceDiagram
-    participant B as Brain
-    participant H as Hands pod (MCP)
+    participant B as Brain pod
+    participant K as k8s API (exec)
+    participant H as Hands pod (sleep infinity)
     participant F as Home PVC
-    B->>H: tools/call hades_write { path, content }
-    H->>H: HomePathPolicy: resolve + reject escapes
-    H->>F: write file
-    H-->>B: MCP result (text)
-    B->>H: tools/call hades_exec { command }
-    H->>F: run in sandbox profile
-    H-->>B: MCP result (stdout/stderr)
+    B->>B: HomePathPolicy: resolve + reject escapes
+    B->>K: exec cat /home/agent/path
+    K->>H: run in the hands container
+    H->>F: read/write file
+    H-->>K: stdout
+    K-->>B: result (stdout/stderr + exit)
 ```
 
 The brain sees a normal tool result. The system sees every call as a durable
-event. Tool errors surface as MCP rejections so confinement holds over the
-wire.
+event. The home path policy is enforced client-side before any exec reaches
+the pod, so confinement holds regardless of substrate.
 
-## The MCP wire
+## The brain→hands wire
 
-The brain→hands wire is **MCP Streamable HTTP** — the standards-aligned
-single-endpoint JSON-RPC-over-HTTP-with-SSE protocol. The hands pod exposes
-three tools:
+The brain reaches the hands pod via the **Kubernetes exec API** — the brain
+pod's in-cluster ServiceAccount execs `cat`/`sh`/`dd` into the hands
+container. The hands pod runs `sleep infinity`; it is a thin sandbox with the
+Home mounted at `/home/agent`. There is no tool server in the pod — the brain
+drives all execution via exec (`PodHandsBackend`).
 
-| Tool | Maps to |
-|------|---------|
-| `hades_read(path)` | `HandsBackend.read` |
-| `hades_write(path, content)` | `HandsBackend.write` |
-| `hades_exec(command, cwd?)` | `HandsBackend.exec` |
+The `HandsBackend` port is the seam. Alternate wires exist as adapters behind
+it:
 
-The hands pod runs **stateless** (no session ID): each tool call is
-independent, which suits disposable hands. A fresh MCP transport is created
-per request (the stateless contract requires it).
+| Adapter | Wire | Use |
+|---------|------|-----|
+| `PodHandsBackend` | k8s exec | live cluster (default) |
+| `LocalConfinedHands` | in-process fs | test substrate |
+| `ContainerHands` | docker container | dev real-isolation hands |
+| `McpHandsClient` | MCP Streamable HTTP | alternate (a hands pod running the MCP server) |
 
-A plain-HTTP `HttpHandsClient` exists as a fallback for environments without
-the MCP SDK, but `McpHandsClient` is the default.
+The hands pod exposes three operations mapped onto `HandsBackend`:
+`hades_read`, `hades_write`, `hades_exec`.
 
 ## Filesystem policy
 
