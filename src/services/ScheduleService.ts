@@ -2,7 +2,7 @@ import { nameOf, namespaceOf, type AgentSubject, type HadesResource } from "../d
 import { isScheduleDue } from "../domain/schedule-due.js";
 import type { EventStorePort } from "../ports/EventStore.js";
 import type { StateStorePort } from "../ports/StateStore.js";
-import { PolicyService } from "./PolicyService.js";
+import { type PolicyService } from "./PolicyService.js";
 
 type DeliverScheduledMessage = (agentName: string, text: string, options: { namespace: string; origin: Record<string, any> }) => Promise<unknown>;
 

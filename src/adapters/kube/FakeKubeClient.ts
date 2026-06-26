@@ -25,7 +25,7 @@ export class FakeKubeClient implements KubeClient {
     }
 
     async list(namespace: string, kind: string): Promise<KubeObject[]> {
-        const prefix = `${namespace}/${kind}/`;
+        const _prefix = `${namespace}/${kind}/`;
         return [...this.objects.values()].filter((obj) => {
             const objNs = obj.metadata.namespace ?? namespace;
             return objNs === namespace && obj.kind === kind;

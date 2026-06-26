@@ -10,6 +10,7 @@
   "scripts": {
     "clean": "node scripts/clean-dist.mjs",
     "build": "npm run clean --silent && tsc",
+    "lint": "eslint src/",
     "test": "npm run build && node --test",
     "demo": "npm run build && node dist/cli.js demo",
     "serve": "npm run build && node dist/cli.js serve",
@@ -32,8 +33,11 @@
     "pg": "^8.22.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^24.0.0",
-    "typescript": "^5.8.3"
+    "eslint": "^10.5.0",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.62.0"
   },
   "files": [
     "dist/",

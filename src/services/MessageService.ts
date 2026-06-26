@@ -1,8 +1,8 @@
 import { nameOf, namespaceOf, type HadesResource } from "../domain/resources.js";
 import type { EventStorePort } from "../ports/EventStore.js";
 import type { StateStorePort } from "../ports/StateStore.js";
-import { AgentService } from "./AgentService.js";
-import { BrainService } from "./BrainService.js";
+import { type AgentService } from "./AgentService.js";
+import { type BrainService } from "./BrainService.js";
 
 type MessageOptions = {
     namespace?: string;
