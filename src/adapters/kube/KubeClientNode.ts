@@ -88,6 +88,14 @@ export class KubeClientNode implements KubeClient {
         }
     }
 
+    async patchStatus(namespace: string, kind: string, name: string, status: Record<string, unknown>): Promise<void> {
+        const plural = pluralize(kind);
+        const opts = { headers: { "content-type": "application/merge-patch+json" } };
+        await this.customObjects.patchNamespacedCustomObjectStatus({
+            group: "hades.dev", version: "v1alpha1", namespace, plural, name, body: { status }, ...opts,
+        });
+    }
+
     async healthz(): Promise<boolean> {
         try {
             await this.core.listNamespace();
