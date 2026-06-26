@@ -136,3 +136,42 @@ test("a hands pod with userNamespace:true gets a rootless fake root (hostUsers:f
     assert.equal(container.securityContext.runAsNonRoot, false, "runAsNonRoot false for the fake root");
     assert.equal(podSpec.securityContext.hostUsers, false, "user namespace isolates the root");
 });
+
+test("milestone: a connector is governed + discoverable + callable end-to-end", async () => {
+    // End-to-end through the controller: apply a Connector, reconcile, and prove
+    // (1) the kernel ensured an egress NetworkPolicy (governance),
+    // (2) the brain pod received HADES_CONNECTORS env (discovery),
+    // (3) the brain-side adapter (ConnectorToolRegistrar) can call the endpoint.
+    const { rt, kube } = await fixture();
+    await rt.apply({ kind: "Connector", metadata: { namespace: NS, name: "echo" }, spec: { agentRef: AGENT, endpoint: "https://echo.example.com", egress: "restricted-web" } });
+    await rt.reconcile();
+
+    // (1) Governance: the NetworkPolicy exists, scoped to the brain pod.
+    const policy = await kube.get(NS, "NetworkPolicy", "connector-echo");
+    assert.ok(policy, "egress NetworkPolicy ensured");
+    assert.equal(policy.spec.podSelector.matchLabels["hades.dev/agent"], AGENT);
+
+    // (2) Discovery: the brain pod env carries the connector manifest.
+    const brainDep = await kube.get(NS, "Deployment", `brain-${AGENT}`);
+    const env = brainDep.spec.template.spec.containers[0].env;
+    const manifest = JSON.parse(env.find((e) => e.name === "HADES_CONNECTORS").value);
+    assert.equal(manifest[0].name, "echo");
+
+    // (3) Callable: the brain-side adapter (userland) reads the manifest + calls.
+    let calledUrl = "";
+    const fakeFetch = async (url) => { calledUrl = url; return new Response("{}", { status: 200 }); };
+    const policy2 = { can: () => ({ allowed: true }), assert: () => ({ allowed: true }) };
+    const secrets = { get: async () => undefined };
+    const Type = { Object: (s) => s, String: () => ({}), Optional: (v) => v, Array: (v) => v };
+    const tools = {};
+    const api = { registerTool: (t) => { tools[t.name] = t; } };
+    const { ConnectorToolRegistrar, connectorsFromEnv } = await import("../dist/adapters/brain/ConnectorToolRegistrar.js");
+    // Simulate the brain pod reading its injected env.
+    const envConnectors = connectorsFromEnv({ HADES_CONNECTORS: JSON.stringify(manifest) });
+    new ConnectorToolRegistrar(
+        { kind: "Agent", name: AGENT, namespace: NS }, policy2, secrets, (d) => d, Type, envConnectors, fakeFetch,
+    ).register(api);
+    const result = await tools["hades_call_echo"].execute("id", { path: "/hi", method: "GET" });
+    assert.equal(calledUrl, "https://echo.example.com/hi", "adapter called the discovered endpoint");
+    assert.match(result.content[0].text, /^200/);
+});
