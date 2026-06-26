@@ -27,6 +27,7 @@ try {
     else if (command === "primitives") await primitives(args[0]);
     else if (command === "serve") await serve(args);
     else if (command === "controller") await controller(args);
+    else if (command === "attach") await attach(args);
     else if (command === "demo") await demo();
     else throw new Error(`Unknown command ${command}`);
 } catch (error) {
@@ -50,6 +51,7 @@ Commands:
   serve [port]                 start the Hades API server
   controller [intervalMs]      run the distributed reconcile loop
                                (deploy mode; set HADES_MODE=distributed)
+  attach <agent>               attach a CLI console to an agent
   demo [manifest] [agent]      run a local loop using a manifest
                                default uses offline test demo manifest
 
@@ -155,4 +157,34 @@ function parseNamespace(args: string[]): { namespace?: string; rest: string[] } 
         index += 1;
     }
     return { namespace, rest };
+}
+
+async function attach(args: string[]): Promise<void> {
+    const { namespace, rest } = parseNamespace(args);
+    const agentRef = rest[0];
+    if (!agentRef) throw new Error("attach requires <agent>");
+    const rt = await runtime();
+    await rt.reconcile();
+    const { CliBridge } = await import("./ports/ListenerBridge.js");
+    const agent = rt.agents.resolveAgent(agentRef, namespace);
+    const sessionName = agent.status?.session ?? agent.spec?.defaultSession ?? `${agentRef}-default`;
+    const bridge = new CliBridge(`cli-${agentRef}`, agentRef, sessionName);
+    bridge.onMessage(async (message) => {
+        const { reply } = await rt.messageAgent(agentRef, message.content, { namespace });
+        return { reply, origin: message.origin };
+    });
+    await bridge.start();
+    console.log(`attached to ${agentRef} (type a message, Ctrl-D to exit)`);
+    process.stdin.setEncoding("utf8");
+    for await (const line of process.stdin) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+            const reply = await bridge.receive(trimmed);
+            await bridge.send("stdout", reply);
+        } catch (error) {
+            console.error(`hades attach: ${error instanceof Error ? error.message : error}`);
+        }
+    }
+    await bridge.stop();
 }
