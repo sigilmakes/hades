@@ -90,19 +90,30 @@ export class CliBridge implements ListenerBridge {
     }
 }
 
-/** Resolve a listener's bridge from its resource spec. Returns a CliBridge for `cli`. */
-export function bridgeForListener(listener: HadesResource, sessionRef: string): ListenerBridge {
+/** Resolve a listener's bridge from its resource spec.
+ * `cli` -> CliBridge (real). `discord`/`matrix` -> the SDK-backed bridge when
+ * credentials.token is supplied; otherwise UnconfiguredBridge (the resource
+ * model and routing exist; the token + SDK are the missing piece). */
+export async function bridgeForListener(listener: HadesResource, sessionRef: string, credentials?: Record<string, string>): Promise<ListenerBridge> {
     const platform = listener.spec?.platform ?? "cli";
+    const listenerRef = listener.metadata?.name ?? "cli";
+    const agentRef = listener.spec?.agentRef ?? "";
     if (platform === "cli") {
-        return new CliBridge(
-            listener.metadata?.name ?? "cli",
-            listener.spec?.agentRef ?? "",
-            sessionRef,
-        );
+        return new CliBridge(listenerRef, agentRef, sessionRef);
     }
-    // Platform bridges (discord/matrix/email/web) are adapters behind this
-    // same port; their SDKs are not wired yet. The resource model and routing
-    // exist; the bridge SDK is the only missing piece.
+    if (platform === "discord" && credentials?.token) {
+        const { DiscordBridge } = await import("../adapters/listeners/DiscordBridge.js");
+        return new DiscordBridge({ token: credentials.token, listenerRef, agentRef, sessionRef });
+    }
+    if (platform === "matrix" && credentials?.token) {
+        const { MatrixBridge } = await import("../adapters/listeners/MatrixBridge.js");
+        return new MatrixBridge({
+            homeserverUrl: credentials.homeserverUrl ?? "https://matrix.org",
+            accessToken: credentials.token,
+            userId: credentials.userId ?? `@${agentRef}:matrix.org`,
+            listenerRef, agentRef, sessionRef,
+        });
+    }
     return new UnconfiguredBridge(platform);
 }
 

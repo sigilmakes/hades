@@ -40,19 +40,27 @@ test("cli bridge rejects messages before start", async () => {
     await assert.rejects(bridge.receive("hi"), /not started/);
 });
 
-test("bridgeForListener returns a CliBridge for the cli platform", () => {
-    const listener = { kind: "Listener", metadata: { namespace: NS, name: "wren-cli" }, spec: { agentRef: AGENT, platform: "cli" } };
-    const bridge = bridgeForListener(listener, SESSION);
+test("bridgeForListener returns a CliBridge for the cli platform", async () => {
+    const listener = { kind: "Listener", metadata: { namespace: NS, name: "atlas-cli" }, spec: { agentRef: AGENT, platform: "cli" } };
+    const bridge = await bridgeForListener(listener, SESSION);
     assert.equal(bridge.platform, "cli");
     assert.equal(bridge instanceof CliBridge, true);
 });
 
-test("bridgeForListener returns an UnconfiguredBridge for unwired platforms", () => {
-    const listener = { kind: "Listener", metadata: { namespace: NS, name: "wren-discord" }, spec: { agentRef: AGENT, platform: "discord" } };
-    const bridge = bridgeForListener(listener, SESSION);
+test("bridgeForListener returns an UnconfiguredBridge for platforms without a token", async () => {
+    const listener = { kind: "Listener", metadata: { namespace: NS, name: "atlas-discord" }, spec: { agentRef: AGENT, platform: "discord" } };
+    const bridge = await bridgeForListener(listener, SESSION);
     assert.equal(bridge.platform, "discord");
-    // start fails loudly — the resource model exists, the SDK is the missing piece.
-    assert.rejects(bridge.start(), /not configured/);
+    // start fails loudly — the resource model exists, the token is the missing piece.
+    await assert.rejects(bridge.start(), /not configured/);
+});
+
+test("bridgeForListener returns a DiscordBridge when a token is supplied", async () => {
+    const listener = { kind: "Listener", metadata: { namespace: NS, name: "atlas-discord" }, spec: { agentRef: AGENT, platform: "discord" } };
+    const bridge = await bridgeForListener(listener, SESSION, { token: "fake-bot-token" });
+    assert.equal(bridge.platform, "discord");
+    const { DiscordBridge } = await import("../dist/adapters/listeners/DiscordBridge.js");
+    assert.equal(bridge instanceof DiscordBridge, true);
 });
 
 test("cli bridge round-trips a tool call through the agent", async () => {
