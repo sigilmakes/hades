@@ -213,6 +213,9 @@ export class KubeController {
         // not over HTTP. The NetworkPolicy still isolates the pod.
         // NetworkPolicy: the capability boundary as k8s network policy.
         // brain pod -> hands pod only (exec); hands pod -> nothing (no egress).
+        // Egress is projected from the agent's CapabilityGrants: a grant with
+        // `networkEgress` permits the matching profile (DNS+HTTPS by default).
+        const egress = this.egressForAgent(ns, agentName);
         const handsNetPol: KubeObject = {
             apiVersion: "networking.k8s.io/v1",
             kind: "NetworkPolicy",
@@ -224,16 +227,41 @@ export class KubeController {
                     // The brain reaches the hands pod via k8s exec (in-cluster SA),
                     // not over a port. No ingress is needed; default-deny.
                 ],
-                egress: [
-                    // Hands pods have no egress by default — no model creds, no internet.
-                    // (DNS could be added per-profile if a hands tool needs it; default-deny is safest.)
-                ],
+                egress,
             },
         };
         await this.kube.ensure(ns, handsDep);
         await this.kube.ensure(ns, handsNetPol);
         await this.events.append("system", "hands.reconciled", { hands: name, namespace: ns, deployment: `hands-${agentName}` });
         await this.patchStatus(hands, { phase: "ready", podName: `hands-${agentName}` });
+    }
+
+    /**
+     * Compute the egress rules for a hands pod from the agent's grants.
+     * Default-deny (no egress). A `networkEgress` capability in a grant's
+     * constraints opens the matching profile:
+     *   restricted-web -> DNS (kube-dns) + HTTPS (anywhere:443)
+     * Anything else -> no egress (default-deny).
+     */
+    private egressForAgent(namespace: string, agentName: string): Record<string, any>[] {
+        const grants = this.state.list("CapabilityGrant", namespace)
+            .filter((g) => g.spec?.subject?.kind === "Agent" && g.spec?.subject?.name === agentName);
+        const profiles = new Set<string>();
+        for (const grant of grants) {
+            for (const cap of grant.spec?.capabilities ?? []) {
+                if (cap.startsWith("networkEgress:")) profiles.add(cap.slice("networkEgress:".length));
+            }
+            const constraintProfiles = grant.spec?.constraints?.networkEgress;
+            if (Array.isArray(constraintProfiles)) for (const p of constraintProfiles) profiles.add(p);
+        }
+        const egress: Record<string, any>[] = [];
+        if (profiles.has("restricted-web")) {
+            // DNS to the kube-dns cluster Service.
+            egress.push({ to: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "kube-system" } }, podSelector: { matchLabels: { "k8s-app": "kube-dns" } } }], ports: [{ protocol: "UDP", port: 53 }, { protocol: "TCP", port: 53 }] });
+            // HTTPS anywhere.
+            egress.push({ to: [{ ipBlock: { cidr: "0.0.0.0/0" } }], ports: [{ protocol: "TCP", port: 443 }] });
+        }
+        return egress; // empty = default-deny
     }
 
     /** Schedule → k8s CronJob (replaces the in-process croner in deploy mode). */

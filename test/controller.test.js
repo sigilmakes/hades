@@ -220,3 +220,25 @@ test("controller mounts the home PVC referenced by the agent's homeRef (not a na
     const vol = handsDep.spec.template.spec.volumes[0];
     assert.equal(vol.persistentVolumeClaim.claimName, "home-custom-home", "hands pod mounts the homeRef PVC, not a convention-based name");
 });
+
+test("controller projects a networkEgress grant into hands egress (restricted-web)", async () => {
+    const { dist, kube } = await fixture();
+    await dist.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "web-grant" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["networkEgress:restricted-web"], constraints: { namespace: "own" } } });
+    await dist.reconcile();
+    const netpol = await kube.get(NS, "NetworkPolicy", `hands-${AGENT}-netpol`);
+    assert.ok(netpol, "hands NetworkPolicy ensured");
+    // restricted-web -> DNS + HTTPS egress rules.
+    assert.ok(netpol.spec.egress.length >= 2, "restricted-web grants DNS + HTTPS egress");
+    const hasHttps = netpol.spec.egress.some((e) => e.ports?.some((p) => p.port === 443));
+    const hasDns = netpol.spec.egress.some((e) => e.ports?.some((p) => p.port === 53));
+    assert.ok(hasHttps, "HTTPS egress projected");
+    assert.ok(hasDns, "DNS egress projected");
+});
+
+test("controller keeps hands default-deny egress when no networkEgress grant", async () => {
+    const { dist, kube } = await fixture();
+    await dist.reconcile();
+    const netpol = await kube.get(NS, "NetworkPolicy", `hands-${AGENT}-netpol`);
+    assert.ok(netpol);
+    assert.equal(netpol.spec.egress.length, 0, "no network grant -> default-deny egress");
+});
