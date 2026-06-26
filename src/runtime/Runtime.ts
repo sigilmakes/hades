@@ -1,4 +1,4 @@
-import { type AgentSubject, type HadesResource, type HadesState, nameOf, namespaceOf } from "../domain/resources.js";
+import { type AgentSubject, type HadesResource, type HadesState } from "../domain/resources.js";
 import type { EventStorePort } from "../ports/EventStore.js";
 import type { StateStorePort } from "../ports/StateStore.js";
 import type { AgentService } from "../services/AgentService.js";

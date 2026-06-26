@@ -64,7 +64,6 @@ export function createServer(runtime: Runtime): http.Server {
                 return json(res, await runtime.syscalls.emitArtifact(body.subject, body.spec));
             }
             if (req.method === "GET" && url.pathname === "/hades/v1/syscalls/permitted") {
-                const subject = url.searchParams.get("subject");
                 const ns = url.searchParams.get("namespace") ?? undefined;
                 const name = url.searchParams.get("name") ?? undefined;
                 if (!name) return json(res, { error: "name query param required" }, 400);

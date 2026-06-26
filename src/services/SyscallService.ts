@@ -1,7 +1,7 @@
-import { nameOf, namespaceOf, type AgentSubject, type HadesResource } from "../domain/resources.js";
+import { nameOf, type AgentSubject, type HadesResource } from "../domain/resources.js";
 import type { EventStorePort } from "../ports/EventStore.js";
 import type { StateStorePort } from "../ports/StateStore.js";
-import { PolicyService } from "./PolicyService.js";
+import { type PolicyService } from "./PolicyService.js";
 
 /**
  * The `os.*` syscall layer (docs/control-plane.md). Agents do not patch raw Kubernetes YAML by
