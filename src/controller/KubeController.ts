@@ -134,6 +134,10 @@ export class KubeController {
         if (agent?.spec?.lifecycle === "ephemeral" && agent?.status?.phase === "completed") {
             return;
         }
+        // Resolve the home PVC claim: prefer the Hands spec homeRef, then the agent's homeRef,
+        // then the convention. The PVC is named home-<homeName>.
+        const homeName = hands.spec?.homeRef ?? agent?.spec?.homeRef ?? `${agentName}-home`;
+        const homeClaim = `home-${homeName}`;
         const ownerRef = { apiVersion: "hades.dev/v1alpha1", kind: "Hands", name, blockOwnerDeletion: true, controller: true };
         const handsDep: KubeObject = {
             apiVersion: "apps/v1",
@@ -152,7 +156,7 @@ export class KubeController {
                             env: [{ name: "HADES_HOME_ROOT", value: "/home/agent" }],
                             volumeMounts: [{ name: "home", mountPath: "/home/agent" }],
                         }],
-                        volumes: [{ name: "home", persistentVolumeClaim: { claimName: `home-${agentName}-home` } }],
+                        volumes: [{ name: "home", persistentVolumeClaim: { claimName: homeClaim } }],
                     },
                 },
             },

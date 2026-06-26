@@ -209,3 +209,15 @@ test("distributed spawnAgent fails when the worker run throws but still reaps", 
     assert.equal(worker.status.phase, "completed", "failed worker is still reaped");
     assert.equal(dist.state.get("CapabilityGrant", NS, "failing-worker-spawn-grant"), undefined, "failed worker grant cleaned up");
 });
+
+test("controller mounts the home PVC referenced by the agent's homeRef (not a naming convention)", async () => {
+    const { dist, kube } = await fixture();
+    // An agent whose home is NOT named <agent>-home — the mount must follow homeRef.
+    await dist.apply({ kind: "Home", metadata: { namespace: NS, name: "custom-home" }, spec: {} });
+    await dist.apply({ kind: "Agent", metadata: { namespace: NS, name: "jay" }, spec: { homeRef: "custom-home", defaultSession: "jay-default", desiredState: "active", brain: { mode: "test" } } });
+    await dist.reconcile();
+    const handsDep = kube.get(NS, "Deployment", `hands-jay`);
+    assert.ok(handsDep);
+    const vol = handsDep.spec.template.spec.volumes[0];
+    assert.equal(vol.persistentVolumeClaim.claimName, "home-custom-home", "hands pod mounts the homeRef PVC, not a convention-based name");
+});
