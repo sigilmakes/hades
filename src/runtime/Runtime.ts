@@ -1,6 +1,7 @@
 import { type AgentSubject, type HadesKind, type HadesResource, type HadesState } from "../domain/resources.js";
 import { validateResource } from "../domain/validate.js";
 import type { EventStorePort } from "../ports/EventStore.js";
+import { type Logger, type Metrics, noopLogger, noopMetrics } from "../ports/Observability.js";
 import type { StateStorePort } from "../ports/StateStore.js";
 import type { AgentService } from "../services/AgentService.js";
 import type { BrainService } from "../services/BrainService.js";
@@ -59,6 +60,10 @@ export abstract class Runtime {
         readonly projections: ProjectionService,
         readonly templates: TemplateService,
         readonly connectors: ConnectorService,
+        /** Structured logger (default noop — opt-in via the runtime factory). */
+        readonly log: Logger = noopLogger,
+        /** Kernel self-report metrics (default noop — opt-in via the factory). */
+        readonly metrics: Metrics = noopMetrics,
         /** The k8s client, if a live cluster is attached (absent in tests). */
         readonly kubeClient?: KubeClient,
         /** The k8s controller, set by {@link HadesRuntime} when a cluster is attached. */

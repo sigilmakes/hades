@@ -2,6 +2,7 @@ import { nameOf, namespaceOf, type HadesResource } from "../domain/resources.js"
 import { HADES_FINALIZER, type KubeClient } from "../ports/KubeClient.js";
 import type { StateStorePort } from "../ports/StateStore.js";
 import type { EventStorePort } from "../ports/EventStore.js";
+import { type Logger, type Metrics, noopLogger, noopMetrics, METRIC, LABEL } from "../ports/Observability.js";
 import {
     buildHands, buildHomePvc, buildBrain, buildSchedule, buildHadesCrd, buildConnectorNetworkPolicy, buildHandsImageJob, buildSkillService, egressForAgent, toCronExpression,
     type OwnerRef,
@@ -26,26 +27,42 @@ export class KubeController {
     private debounce: ReturnType<typeof setTimeout> | undefined;
     private running = false;
     private stopWatch?: () => void;
+    private cycle = 0;
 
     constructor(
         private readonly state: StateStorePort,
         private readonly events: EventStorePort,
         private readonly kube: KubeClient,
+        private readonly log: Logger = noopLogger,
+        private readonly metrics: Metrics = noopMetrics,
     ) {}
 
     async reconcile(): Promise<void> {
-        // Hades resources must exist as CRDs first so native objects can reference
-        // them via ownerReferences (k8s requires a uid).
-        await this.ensureHadesResources();
-        for (const home of this.state.list("Home")) await this.reconcileHome(home);
-        for (const agent of this.state.list("Agent")) await this.reconcileAgent(agent);
-        // Hands images are built before hands pods so the tag resolves this pass.
-        for (const image of this.state.list("HandsImage")) await this.reconcileHandsImage(image);
-        for (const skill of this.state.list("Skill")) await this.reconcileSkill(skill);
-        for (const hands of this.state.list("Hands")) await this.reconcileHands(hands);
-        for (const listener of this.state.list("Listener")) await this.reconcileListener(listener);
-        for (const schedule of this.state.list("Schedule")) await this.reconcileSchedule(schedule);
-        for (const connector of this.state.list("Connector")) await this.reconcileConnector(connector);
+        const start = Date.now();
+        this.metrics.inc(METRIC.reconcileTotal);
+        const log = this.log.child({ reconcile: ++this.cycle });
+        try {
+            // Hades resources must exist as CRDs first so native objects can reference
+            // them via ownerReferences (k8s requires a uid).
+            await this.ensureHadesResources();
+            for (const home of this.state.list("Home")) await this.reconcileHome(home);
+            for (const agent of this.state.list("Agent")) await this.reconcileAgent(agent);
+            // Hands images are built before hands pods so the tag resolves this pass.
+            for (const image of this.state.list("HandsImage")) await this.reconcileHandsImage(image);
+            for (const skill of this.state.list("Skill")) await this.reconcileSkill(skill);
+            for (const hands of this.state.list("Hands")) await this.reconcileHands(hands);
+            for (const listener of this.state.list("Listener")) await this.reconcileListener(listener);
+            for (const schedule of this.state.list("Schedule")) await this.reconcileSchedule(schedule);
+            for (const connector of this.state.list("Connector")) await this.reconcileConnector(connector);
+            this.metrics.observe(METRIC.reconcileSeconds, undefined, (Date.now() - start) / 1000);
+            log.debug("reconcile complete", { ms: Date.now() - start });
+            this.reconcilePodPhases();
+        } catch (error) {
+            this.metrics.inc(METRIC.reconcileErrors);
+            this.metrics.observe(METRIC.reconcileSeconds, undefined, (Date.now() - start) / 1000);
+            log.error("reconcile failed", { error: error instanceof Error ? error.message : String(error) });
+            throw error;
+        }
     }
 
     /**
@@ -81,7 +98,7 @@ export class KubeController {
             this.debounce = undefined;
             this.running = true;
             this.reconcile()
-                .catch((error) => console.error(`reconcile failed: ${error instanceof Error ? error.message : error}`))
+                .catch((error) => this.log.error("reconcile failed", { error: error instanceof Error ? error.message : String(error) }))
                 .finally(() => { this.running = false; });
         }, 250);
     }
@@ -152,6 +169,7 @@ export class KubeController {
         if (await this.isDeleting(namespaceOf(home), "Home", name)) return;
         await this.kube.ensure(namespaceOf(home), buildHomePvc(home));
         await this.events.append("system", "home.reconciled", { home: name, pvc: `home-${name}` });
+        this.metrics.inc(METRIC.resourceReconciled, { [LABEL.kind]: "Home" });
         await this.patchStatus(home, { phase: "ready", pvc: `home-${name}` });
     }
 
@@ -187,6 +205,7 @@ export class KubeController {
         await this.kube.ensure(ns, deployment);
         await this.kube.ensure(ns, service);
         await this.events.append("system", "agent.reconciled", { agent: name, namespace: ns, brain: `brain-${name}` });
+        this.metrics.inc(METRIC.resourceReconciled, { [LABEL.kind]: "Agent" });
         await this.patchStatus(agent, { phase: "active", brainPod: `brain-${name}` });
     }
 
@@ -213,6 +232,7 @@ export class KubeController {
         await this.kube.ensure(ns, deployment);
         await this.kube.ensure(ns, networkPolicy);
         await this.events.append("system", "hands.reconciled", { hands: name, namespace: ns, deployment: `hands-${agentName}` });
+        this.metrics.inc(METRIC.resourceReconciled, { [LABEL.kind]: "Hands" });
         await this.patchStatus(hands, { phase: "ready", podName: `hands-${agentName}` });
     }
 
@@ -236,6 +256,7 @@ export class KubeController {
         // resolves and mark the listener ready.
         await this.patchStatus(listener, { phase: "connected", credentials: Boolean(credentials) });
         await this.events.append("system", "listener.reconciled", { listener: name, platform, hasSecret: Boolean(credentials) });
+        this.metrics.inc(METRIC.resourceReconciled, { [LABEL.kind]: "Listener" });
     }
 
     /**
@@ -259,6 +280,7 @@ export class KubeController {
         }
         await this.patchStatus(connector, { phase: "ready", reachable });
         await this.events.append("system", "connector.reconciled", { connector: name, agent: String(connector.spec?.agentRef ?? ""), egress: connector.spec?.egress ?? "none", reachable });
+        this.metrics.inc(METRIC.resourceReconciled, { [LABEL.kind]: "Connector" });
     }
 
     /**
@@ -300,6 +322,7 @@ export class KubeController {
         await this.kube.ensure(ns, svc);
         await this.patchStatus(skill, { phase: "exposed", endpoint: `http://skill-${name}.${ns}.svc.cluster.local:${svc.spec.ports[0].port}` });
         await this.events.append("system", "skill.exposed", { skill: name, agent: String(skill.spec?.agentRef ?? ""), endpoint: svc.spec.ports[0].port });
+        this.metrics.inc(METRIC.resourceReconciled, { [LABEL.kind]: "Skill" });
     }
 
     /** Schedule → k8s CronJob (replaces the in-process croner in deploy mode). */
@@ -317,6 +340,7 @@ export class KubeController {
         const name = nameOf(schedule);
         await this.kube.ensure(ns, cronJob);
         await this.events.append("system", "schedule.reconciled", { schedule: name, namespace: ns, cronJob: `sched-${name}` });
+        this.metrics.inc(METRIC.resourceReconciled, { [LABEL.kind]: "Schedule" });
         await this.patchStatus(schedule, { phase: "active", cronJob: `sched-${name}` });
     }
 
@@ -335,6 +359,30 @@ export class KubeController {
         } catch {
             // The CRD may not exist yet (ensureHadesResources runs next pass); the local
             // mirror is the fallback. kubectl get agents shows the cluster status once it lands.
+        }
+    }
+
+    /**
+     * Record pod-phase gauges: count agents/hands by their status phase. This
+     * is kernel self-report (workload state), like reading `/proc` — not
+     * application metrics. Called once at the end of each successful reconcile.
+     */
+    private reconcilePodPhases(): void {
+        const agentPhases = new Map<string, number>();
+        for (const agent of this.state.list("Agent")) {
+            const phase = String(agent.status?.phase ?? "unknown");
+            agentPhases.set(phase, (agentPhases.get(phase) ?? 0) + 1);
+        }
+        for (const [phase, count] of agentPhases) {
+            this.metrics.set(METRIC.podPhase, { [LABEL.kind]: "Agent", [LABEL.phase]: phase }, count);
+        }
+        const handsPhases = new Map<string, number>();
+        for (const hands of this.state.list("Hands")) {
+            const phase = String(hands.status?.phase ?? "unknown");
+            handsPhases.set(phase, (handsPhases.get(phase) ?? 0) + 1);
+        }
+        for (const [phase, count] of handsPhases) {
+            this.metrics.set(METRIC.podPhase, { [LABEL.kind]: "Hands", [LABEL.phase]: phase }, count);
         }
     }
 }

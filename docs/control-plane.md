@@ -36,8 +36,9 @@ flowchart TB
 ## API server
 
 Stateless HTTP/JSON. Exposes management endpoints, syscall endpoints, and
-projection reads. See [`syscalls.md`](syscalls.md) for the syscall
-surface and [`projections.md`](projections.md) for read views.
+projection reads, plus `/healthz`, `/readyz`, and `/metrics` (Prometheus —
+see [Observability](observability.md)). See [`syscalls.md`](syscalls.md) for
+the syscall surface and [`projections.md`](projections.md) for read views.
 
 ## Reconciler
 

@@ -24,6 +24,7 @@ then branch by topic.
 - **[Listeners](listeners.md)** — per-agent I/O devices and the bridge contract.
 - **[Schedules](schedules.md)** — cron/interval/once timers as first-class resources.
 - **[Control Plane](control-plane.md)** — the API server, the reconciler, the k8s controller.
+- **[Observability](observability.md)** — structured logging + `/metrics` (the kernel observing itself).
 - **[Web UI](web-ui.md)** — the React console: agents, activity, easy spin-up.
 - **[Templates](templates.md)** — `hades new <template> <name>` prebaked spin-up.
 - **[Connectors](connectors.md)** — the HTTP capability boundary (outbound tools).

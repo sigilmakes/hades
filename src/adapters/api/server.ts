@@ -58,6 +58,16 @@ function routes(runtime: Runtime): Route[] {
     return [
         { method: "GET", path: "/healthz", handler: () => ({ ok: true }) },
         { method: "GET", path: "/readyz", handler: () => (runtime.ready ? { ok: true } : { __status: 503, body: { ok: false, reason: "not initialized" } }) },
+        {
+            // Prometheus exposition: reconcile counts/errors/latency + pod phases.
+            // Kernel self-report (the control plane observing itself), like /proc.
+            method: "GET", path: "/metrics", handler: (c) => {
+                const body = runtime.metrics.render();
+                c.res.writeHead(200, { "content-type": "text/plain; version=0.0.4; charset=utf-8" });
+                c.res.end(body);
+                return STREAMING;
+            },
+        },
         { method: "GET", path: "/hades/v1/agents", handler: () => runtime.state.list("Agent") },
         { method: "GET", path: "/hades/v1/events", handler: (c) => runtime.events.list(c.url.searchParams.get("session") ?? undefined) },
         {
