@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,12 +28,14 @@ const command = rawCommand === "--help" || rawCommand === "-h" ? "help" : rawCom
 const dataDir = dataDirFromEnv();
 /** Resolve the built web UI directory (ui/dist), if present. */
 const uiDir = process.env.HADES_UI_DIR ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../ui/dist");
+const TEMPLATE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../examples/templates");
 let runtimePromise: Promise<Runtime> | undefined;
 
 try {
     if (command === "help") help();
     else if (command === "init") await initEmpty();
     else if (command === "apply" || command === "up") await apply(args[0]);
+    else if (command === "new") await newFromTemplate(args);
     else if (command === "delete") await remove(args);
     else if (command === "reconcile") await reconcile();
     else if (command === "message" || command === "say") await message(args);
@@ -59,6 +61,8 @@ function help(): void {
 Commands:
   init                         initialize an empty Hades data directory
   apply|up <file>              apply JSON/YAML-subset resource documents
+  new <template> <name>        spin up an agent from a template
+                              (examples/templates/*.yaml; --set k=v)
   delete <kind> <name>         remove a resource (agents, schedules, ...)
   reconcile                    run controllers once
   say [opts] <agent> <txt>     send a prompt to an agent
@@ -119,6 +123,38 @@ async function apply(file: string | undefined): Promise<void> {
     for (const resource of resources) await rt.apply(resource);
     await rt.reconcile();
     console.log(`applied ${resources.length} resource(s)`);
+}
+
+/**
+ * Spin up an agent from a template: `hades new discord-bot mybot --set token-secret=...`.
+ * Substitutes {{name}}, {{namespace}}, and any --set key=value, then applies.
+ */
+async function newFromTemplate(args: string[]): Promise<void> {
+    const { namespace, rest } = parseNamespace(args);
+    const template = rest[0];
+    const name = rest[1];
+    if (!template || !name) throw new Error("new requires a template and name: hades new <template> <name> [--set k=v]");
+    const file = path.join(TEMPLATE_DIR, `${template}.yaml`);
+    const raw = await readFile(file, "utf8").catch(() => { throw new Error(`template '${template}' not found in ${TEMPLATE_DIR}`); });
+    // Collect --set key=value substitutions.
+    const vars: Record<string, string> = { name, namespace: namespace ?? "default" };
+    for (let i = rest.indexOf(name) + 1; i < args.length; i++) {
+        if (args[i] === "--set" && args[i + 1]?.includes("=")) {
+            const [k, ...v] = args[i + 1].split("=");
+            vars[k] = v.join("=");
+            i++;
+        }
+    }
+    // Substitute {{key}} tokens (braces optional around bare words).
+    const rendered = raw.replace(/\{\{([\w-]+)}}/g, (_, k) => vars[k] ?? `{{${k}}}`);
+    const { parseDocuments } = await import("./adapters/manifest.js");
+    const { validateResource } = await import("./domain/validate.js");
+    const resources = parseDocuments(rendered);
+    for (const resource of resources) validateResource(resource); // fail fast on a bad template render
+    const rt = await runtime();
+    for (const resource of resources) await rt.apply(resource);
+    await rt.reconcile();
+    console.log(`created ${name} from template ${template} (${resources.length} resources in ${namespace ?? "default"})`);
 }
 
 async function remove(args: string[]): Promise<void> {

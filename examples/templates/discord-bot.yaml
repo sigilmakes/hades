@@ -1,0 +1,42 @@
+# A persistent agent attached to Discord. Apply with:
+#   hades new discord-bot mybot --set token-secret=mybot-discord-token
+# then create the Secret: kubectl create secret generic mybot-discord-token --from-literal=token=...
+apiVersion: hades.dev/v1alpha1
+kind: Home
+metadata:
+  name: {{name}}-home
+  namespace: {{namespace}}
+spec: {}
+---
+apiVersion: hades.dev/v1alpha1
+kind: Agent
+metadata:
+  name: {{name}}
+  namespace: {{namespace}}
+spec:
+  homeRef: {{name}}-home
+  defaultSession: {{name}}-default
+  desiredState: active
+  lifecycle: resident
+  brain:
+    mode: pi-sdk
+---
+apiVersion: hades.dev/v1alpha1
+kind: Listener
+metadata:
+  name: {{name}}-discord
+  namespace: {{namespace}}
+spec:
+  agentRef: {{name}}
+  platform: discord
+  secretRef: {{token-secret}}
+---
+apiVersion: hades.dev/v1alpha1
+kind: CapabilityGrant
+metadata:
+  name: {{name}}-self
+  namespace: {{namespace}}
+spec:
+  subject: { kind: Agent, name: {{name}} }
+  capabilities: [createOwnSchedule, spawnAgent, requestApproval, emitArtifact]
+  constraints: { namespace: own }

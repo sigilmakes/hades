@@ -25,6 +25,7 @@ then branch by topic.
 - **[Schedules](schedules.md)** — cron/interval/once timers as first-class resources.
 - **[Control Plane](control-plane.md)** — the API server, the reconciler, the k8s controller.
 - **[Web UI](web-ui.md)** — the React console: agents, activity, easy spin-up.
+- **[Templates](templates.md)** — `hades new <template> <name>` prebaked spin-up.
 - **[Security](security.md)** — capabilities, approvals, network policy, credential isolation.
 - **[Syscalls](syscalls.md)** — the `os.*` capability-checked syscall surface.
 - **[System Agents](system-agents.md)** — provisioner, janitor, auditor.
