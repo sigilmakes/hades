@@ -80,6 +80,7 @@ export const api = {
   approvals: (ns?: string) => getJson<Approval[]>(`/hades/v1/projections/approvals${ns ? `?namespace=${ns}` : ""}`),
   schedules: (ns?: string) => getJson<HadesResource[]>(`/hades/v1/projections/schedules${ns ? `?namespace=${ns}` : ""}`),
   listeners: (ns?: string) => getJson<HadesResource[]>(`/hades/v1/projections/listeners${ns ? `?namespace=${ns}` : ""}`),
+  connectors: (ns?: string) => getJson<HadesResource[]>(`/hades/v1/connectors${ns ? `?namespace=${ns}` : ""}`),
   snapshot: (ns?: string) => getJson<Record<string, HadesResource[]>>(`/hades/v1/projections/snapshot${ns ? `?namespace=${ns}` : ""}`),
   healthz: () => getJson<{ ok: boolean }>("/healthz"),
   templates: () => getJson<{ templates: string[] }>("/hades/v1/templates"),

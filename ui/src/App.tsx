@@ -3,6 +3,7 @@ import { AgentsPage } from "./pages/AgentsPage.js";
 import { ActivityPage } from "./pages/ActivityPage.js";
 import { ListenersPage } from "./pages/ListenersPage.js";
 import { SchedulesPage } from "./pages/SchedulesPage.js";
+import { ConnectorsPage } from "./pages/ConnectorsPage.js";
 import { ApprovalsPage } from "./pages/ApprovalsPage.js";
 import { NewAgentPage } from "./pages/NewAgentPage.js";
 import { HealthPill } from "./components/HealthPill.js";
@@ -11,6 +12,7 @@ const NAV = [
   { to: "/", label: "Agents", end: true },
   { to: "/activity", label: "Activity" },
   { to: "/listeners", label: "Listeners" },
+  { to: "/connectors", label: "Connectors" },
   { to: "/schedules", label: "Schedules" },
   { to: "/approvals", label: "Approvals" },
 ];
@@ -61,6 +63,7 @@ export function App() {
           <Route path="/" element={<AgentsPage />} />
           <Route path="/activity" element={<ActivityPage />} />
           <Route path="/listeners" element={<ListenersPage />} />
+          <Route path="/connectors" element={<ConnectorsPage />} />
           <Route path="/schedules" element={<SchedulesPage />} />
           <Route path="/approvals" element={<ApprovalsPage />} />
           <Route path="/new" element={<NewAgentPage />} />
