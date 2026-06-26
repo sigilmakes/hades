@@ -66,6 +66,7 @@ export class HadesRuntime extends Runtime {
         await this.events.init();
         // Start the projection store: replay the durable log + subscribe.
         await this.projections.start();
+        this.ready = true;
         return this;
     }
 

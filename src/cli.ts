@@ -128,6 +128,31 @@ async function serve(args: string[]): Promise<void> {
     const port = Number(args[0] ?? process.env.PORT ?? 7347);
     const server = createServer(rt);
     server.listen(port, () => console.log(`hades-api listening on :${port}, data=${dataDir}`));
+    installShutdown(rt, server);
+}
+
+/**
+ * Drain on SIGTERM/SIGINT: stop accepting connections, finish in-flight
+ * requests, close the runtime (DB handles), then exit. k8s sends SIGTERM
+ * with a grace period; a clean drain prevents dropped requests and
+ * half-written SQLite state.
+ */
+function installShutdown(rt: Runtime, server: import("node:http").Server): void {
+    let shuttingDown = false;
+    const shutdown = async (signal: string) => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        console.log(`\nhades: ${signal} received, draining…`);
+        server.close();
+        try {
+            await rt.shutdown();
+        } catch (error) {
+            console.error(`hades: shutdown error: ${error instanceof Error ? error.message : error}`);
+        }
+        process.exit(0);
+    };
+    process.on("SIGTERM", () => void shutdown("SIGTERM"));
+    process.on("SIGINT", () => void shutdown("SIGINT"));
 }
 
 async function controller(args: string[]): Promise<void> {
@@ -143,6 +168,7 @@ async function controller(args: string[]): Promise<void> {
     const port = Number(process.env.PORT ?? 7347);
     const server = createServer(rt);
     server.listen(port, () => console.log(`hades-api listening on :${port}, data=${dataDir}`));
+    installShutdown(rt, server);
 }
 
 async function demo(): Promise<void> {

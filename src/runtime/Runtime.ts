@@ -49,6 +49,21 @@ export abstract class Runtime {
 
     abstract init(): Promise<this>;
 
+    /** True once init() has completed and the runtime is ready to serve traffic. */
+    ready = false;
+
+    /**
+     * Drain in-flight work and release resources (state store handles, the
+     * controller watch). Idempotent. Called on SIGTERM so the process exits
+     * cleanly within k8s' terminationGracePeriodSeconds instead of being
+     * killed mid-write.
+     */
+    async shutdown(): Promise<void> {
+        this.ready = false;
+        await this.state.close?.();
+        await this.events.close?.();
+    }
+
     async apply(resource: HadesResource): Promise<HadesResource> {
         const applied = await this.state.apply(resource);
         await this.events.append("system", "resource.applied", {
