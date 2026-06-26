@@ -39,6 +39,31 @@ export function createServer(runtime: Runtime): http.Server {
             if (req.method === "POST" && url.pathname === "/hades/v1/syscalls/spawn-agent") {
                 return json(res, await runtime.spawnAgent(body.subject, body.spec));
             }
+            if (req.method === "POST" && url.pathname === "/hades/v1/syscalls/create-agent") {
+                return json(res, await runtime.syscalls.createAgent(body.subject, body.spec));
+            }
+            if (req.method === "POST" && url.pathname === "/hades/v1/syscalls/create-home") {
+                return json(res, await runtime.syscalls.createHome(body.subject, body.spec));
+            }
+            if (req.method === "POST" && url.pathname === "/hades/v1/syscalls/attach-listener") {
+                return json(res, await runtime.syscalls.attachListener(body.subject, body.spec));
+            }
+            if (req.method === "POST" && url.pathname === "/hades/v1/syscalls/request-approval") {
+                return json(res, await runtime.syscalls.requestApproval(body.subject, body.spec));
+            }
+            if (req.method === "POST" && url.pathname === "/hades/v1/syscalls/respond-approval") {
+                return json(res, await runtime.syscalls.respondApproval(body.subject, body.name, body.decision, body.note));
+            }
+            if (req.method === "POST" && url.pathname === "/hades/v1/syscalls/emit-artifact") {
+                return json(res, await runtime.syscalls.emitArtifact(body.subject, body.spec));
+            }
+            if (req.method === "GET" && url.pathname === "/hades/v1/syscalls/permitted") {
+                const subject = url.searchParams.get("subject");
+                const ns = url.searchParams.get("namespace") ?? undefined;
+                const name = url.searchParams.get("name") ?? undefined;
+                if (!name) return json(res, { error: "name query param required" }, 400);
+                return json(res, runtime.syscalls.permittedSyscalls({ kind: "Agent", name, namespace: ns ?? name }));
+            }
             return json(res, { error: "not found" }, 404);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);

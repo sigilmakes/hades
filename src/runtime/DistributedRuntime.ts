@@ -7,6 +7,7 @@ import { PolicyService } from "../services/PolicyService.js";
 import { PrimitiveService } from "../services/PrimitiveService.js";
 import { Reconciler } from "../services/Reconciler.js";
 import { ScheduleService } from "../services/ScheduleService.js";
+import { SyscallService } from "../services/SyscallService.js";
 import { LocalConfinedHands } from "../adapters/hands/LocalConfinedHands.js";
 import { PiSdkBrainDriver } from "../adapters/brain/PiSdkBrainDriver.js";
 import { TestBrainDriver } from "../adapters/brain/TestBrainDriver.js";
@@ -64,9 +65,10 @@ export class DistributedRuntime extends Runtime {
         override readonly homes: HomeService,
         override readonly listeners: ListenerService,
         override readonly reconciler: Reconciler,
+        override readonly syscalls: SyscallService,
         kubeClient?: KubeClient,
     ) {
-        super(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler);
+        super(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler, syscalls);
         this.kubeController = kubeClient ? new KubeController(state, events, kubeClient) : undefined;
     }
 
@@ -105,7 +107,8 @@ export async function createDistributedRuntime(dataDir: string, options: Distrib
     const listeners = new ListenerService(state, events);
     const primitives = new PrimitiveService();
     const reconciler = new Reconciler(state, homes, agents, listeners, schedules, messages);
-    runtime = new DistributedRuntime(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler, options.kubeClient);
+    const syscalls = new SyscallService(state, events, policy);
+    runtime = new DistributedRuntime(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler, syscalls, options.kubeClient);
     return runtime;
 }
 

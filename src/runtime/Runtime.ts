@@ -10,6 +10,7 @@ import type { PolicyService } from "../services/PolicyService.js";
 import type { PrimitiveService } from "../services/PrimitiveService.js";
 import type { Reconciler } from "../services/Reconciler.js";
 import type { ScheduleService } from "../services/ScheduleService.js";
+import type { SyscallService } from "../services/SyscallService.js";
 
 /**
  * A Hades runtime — the kernel services wired against stores + ports.
@@ -37,6 +38,7 @@ export abstract class Runtime {
         readonly homes: HomeService,
         readonly listeners: ListenerService,
         readonly reconciler: Reconciler,
+        readonly syscalls: SyscallService,
     ) {}
 
     /** A label for which substrate is active: "local" or "distributed". */
