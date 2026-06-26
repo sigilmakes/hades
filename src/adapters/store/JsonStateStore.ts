@@ -1,12 +1,13 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { emptyState, KINDS, resourceKey, type HadesKind, type HadesResource, type HadesState } from "../../domain/resources.js";
-import type { StateStorePort } from "../../ports/StateStore.js";
+import type { StateChange, StateStorePort } from "../../ports/StateStore.js";
 
 export class JsonStateStore implements StateStorePort {
     readonly dataDir: string;
     readonly file: string;
     state: HadesState = emptyState();
+    private readonly subscribers = new Set<(change: StateChange) => void>();
 
     constructor(dataDir: string) {
         this.dataDir = dataDir;
@@ -41,6 +42,7 @@ export class JsonStateStore implements StateStorePort {
         resource.status ??= {};
         this.state[resource.kind as HadesKind][resourceKey(resource)] = resource;
         await this.save();
+        this.notify({ kind: resource.kind as HadesKind, namespace: resource.metadata.namespace, name: resource.metadata.name, op: "apply" });
         return resource;
     }
 
@@ -59,6 +61,7 @@ export class JsonStateStore implements StateStorePort {
         if (existed) {
             delete this.state[kind][key];
             await this.save();
+            this.notify({ kind, namespace, name, op: "remove" });
         }
         return existed;
     }
@@ -74,6 +77,17 @@ export class JsonStateStore implements StateStorePort {
 
     findByName(kind: HadesKind, name: string, namespace: string | undefined = undefined): HadesResource | undefined {
         return this.list(kind, namespace).find((item) => item.metadata?.name === name);
+    }
+
+    subscribe(handler: (change: StateChange) => void): () => void {
+        this.subscribers.add(handler);
+        return () => { this.subscribers.delete(handler); };
+    }
+
+    private notify(change: StateChange): void {
+        for (const handler of this.subscribers) {
+            try { handler(change); } catch { /* a faulty subscriber must not break a mutation */ }
+        }
     }
 }
 

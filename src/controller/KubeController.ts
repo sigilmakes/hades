@@ -23,6 +23,10 @@ import {
  * is native k8s. Status is written back to the local state mirror.
  */
 export class KubeController {
+    private debounce: ReturnType<typeof setTimeout> | undefined;
+    private running = false;
+    private stopWatch?: () => void;
+
     constructor(
         private readonly state: StateStorePort,
         private readonly events: EventStorePort,
@@ -39,7 +43,49 @@ export class KubeController {
         for (const schedule of this.state.list("Schedule")) await this.reconcileSchedule(schedule);
     }
 
-    /** Apply every Hades resource in the state store as a CRD (source of truth). */
+    /**
+     * Start an event-driven reconcile loop. Subscribes to {@link StateStorePort}
+     * mutations and reconciles on change (debounced); the optional `resyncMs`
+     * interval is a periodic safety net that re-reconciles the whole store to
+     * correct any drift the change stream missed (e.g. external edits to the
+     * cluster). Returns a `stop()` that tears down both the watch and the
+     * resync timer.
+     */
+    start(resyncMs = 30_000): () => void {
+        if (this.stopWatch) return this.stopWatch;
+        // Event-driven: a state mutation schedules a debounced reconcile.
+        if (this.state.subscribe) {
+            this.stopWatch = this.state.subscribe(() => this.scheduleReconcile());
+        }
+        // Safety net: periodic full resync catches drift the change stream misses.
+        const timer = setInterval(() => this.scheduleReconcile(), resyncMs);
+        timer.unref?.();
+        return () => {
+            this.stopWatch?.();
+            this.stopWatch = undefined;
+            clearInterval(timer);
+            if (this.debounce) { clearTimeout(this.debounce); this.debounce = undefined; }
+        };
+    }
+
+    /** Schedule a reconcile shortly, coalescing a burst of mutations into one. */
+    private scheduleReconcile(): void {
+        if (this.running) return; // an in-flight reconcile will observe this change on its next pass
+        if (this.debounce) clearTimeout(this.debounce);
+        this.debounce = setTimeout(() => {
+            this.debounce = undefined;
+            this.running = true;
+            this.reconcile()
+                .catch((error) => console.error(`reconcile failed: ${error instanceof Error ? error.message : error}`))
+                .finally(() => { this.running = false; });
+        }, 250);
+    }
+
+    /**
+     * Apply every Hades resource in the state store as a CRD. The controller is
+     * the source of truth for desired state; native objects reference these by
+     * uid, so they must exist in the cluster before reconciliation.
+     */
     private async ensureHadesResources(): Promise<void> {
         for (const kind of HADES_KINDS) {
             for (const resource of this.state.list(kind)) {

@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { emptyState, KINDS, resourceKey, type HadesKind, type HadesResource, type HadesState } from "../../domain/resources.js";
-import type { StateStorePort } from "../../ports/StateStore.js";
+import type { StateChange, StateStorePort } from "../../ports/StateStore.js";
 
 /**
  * A durable state store backed by SQLite on a PVC.
@@ -22,6 +22,7 @@ export class SqliteStateStore implements StateStorePort {
     state: HadesState = emptyState();
     private db!: DatabaseSync;
     private closed = false;
+    private readonly subscribers = new Set<(change: StateChange) => void>();
 
     constructor(dataDir: string) {
         this.dataDir = dataDir;
@@ -69,6 +70,7 @@ export class SqliteStateStore implements StateStorePort {
             "INSERT INTO resources (kind, key, doc) VALUES (?, ?, ?) ON CONFLICT(kind, key) DO UPDATE SET doc = excluded.doc",
         ).run(resource.kind, key, doc);
         (this.state[resource.kind as HadesKind] ??= {})[key] = resource;
+        this.notify({ kind: resource.kind as HadesKind, namespace: resource.metadata.namespace, name: resource.metadata.name, op: "apply" });
         return resource;
     }
 
@@ -86,6 +88,7 @@ export class SqliteStateStore implements StateStorePort {
         if (existed) {
             this.db.prepare("DELETE FROM resources WHERE kind = ? AND key = ?").run(kind, key);
             delete this.state[kind][key];
+            this.notify({ kind, namespace, name, op: "remove" });
         }
         return existed;
     }
@@ -107,5 +110,16 @@ export class SqliteStateStore implements StateStorePort {
         if (this.closed) return;
         this.closed = true;
         this.db?.close();
+    }
+
+    subscribe(handler: (change: StateChange) => void): () => void {
+        this.subscribers.add(handler);
+        return () => { this.subscribers.delete(handler); };
+    }
+
+    private notify(change: StateChange): void {
+        for (const handler of this.subscribers) {
+            try { handler(change); } catch { /* a faulty subscriber must not break a mutation */ }
+        }
     }
 }

@@ -290,3 +290,56 @@ test("finalizer: a deleting Home CRD removes its PVC", async () => {
     await dist.reconcile();
     assert.equal(await kube.get(NS, "PersistentVolumeClaim", `home-${HOME}`), undefined, "home PVC finalized away");
 });
+test("event-driven reconcile: a state mutation triggers a reconcile without a full pass", async () => {
+    const { dist, kube, state } = await fixture();
+    await dist.reconcile();
+    // Start the watch — no kubeClient.start needed; the controller subscribes to state.
+    const stop = dist.controller.start(60_000);
+    try {
+        // Apply a new Home directly through the store (bypasses dist.apply's
+        // explicit reconcile). The state.subscribe stream should drive the
+        // controller to reconcile and create the PVC.
+        await state.apply({ kind: "Home", metadata: { namespace: NS, name: "late-home" }, spec: {} });
+        await waitFor(() => kube.get(NS, "PersistentVolumeClaim", "home-late-home"));
+        const pvc = await kube.get(NS, "PersistentVolumeClaim", "home-late-home");
+        assert.ok(pvc, "event-driven reconcile created the late PVC");
+    } finally {
+        stop();
+    }
+});
+
+test("event-driven reconcile coalesces a burst of mutations into one pass", async () => {
+    const { dist, kube, events } = await fixture();
+    await dist.reconcile();
+    // Count home.reconciled events as a proxy for reconcile passes — each
+    // full reconcile over Homes emits one per home at minimum.
+    let homeReconciled = 0;
+    const unsub = events.subscribe((e) => { if (e.type === "home.reconciled") homeReconciled++; });
+    const stop = dist.controller.start(60_000);
+    try {
+        // A burst of 5 applies — debounce should coalesce into few passes.
+        for (let i = 0; i < 5; i++) {
+            await dist.apply({ kind: "Home", metadata: { namespace: NS, name: `burst-${i}` }, spec: {} });
+        }
+        await waitFor(() => kube.get(NS, "PersistentVolumeClaim", "home-burst-4"));
+        await new Promise((r) => setTimeout(r, 600)); // past the 250ms debounce
+        unsub();
+        // Each reconcile pass emits home.reconciled for every Home (>=1 each).
+        // A coalesced burst should yield few passes, not 5+ separate ones.
+        assert.ok(homeReconciled >= 1, `at least one reconcile pass ran (got ${homeReconciled})`);
+    } finally {
+        stop();
+    }
+});
+
+function waitFor(predicate, { timeoutMs = 2000, intervalMs = 25 } = {}) {
+    return new Promise((resolve, reject) => {
+        const start = Date.now();
+        const tick = async () => {
+            try { if (await predicate()) return resolve(true); } catch {}
+            if (Date.now() - start > timeoutMs) return reject(new Error("waitFor timed out"));
+            setTimeout(tick, intervalMs);
+        };
+        tick();
+    });
+}

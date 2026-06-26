@@ -157,13 +157,13 @@ function installShutdown(rt: Runtime, server: import("node:http").Server): void 
 
 async function controller(args: string[]): Promise<void> {
     const rt = await runtime();
-    const intervalMs = Number(args[0] ?? process.env.HADES_RECONCILE_INTERVAL_MS ?? 5000);
+    const resyncMs = Number(args[0] ?? process.env.HADES_RECONCILE_INTERVAL_MS ?? 30000);
     if (!rt.kubeClient) console.warn("hades controller: HADES_KUBE not set — reconciling local state only (no live cluster)");
     await rt.reconcile();
-    console.log(`hades controller reconciling every ${intervalMs}ms (data=${dataDir})`);
-    setInterval(() => {
-        rt.reconcile().catch((error) => console.error(`reconcile failed: ${error instanceof Error ? error.message : error}`));
-    }, intervalMs);
+    // Event-driven: reconcile on state mutation (debounced), with a periodic
+    // resync as a safety net for drift the change stream misses.
+    if (rt.controller) rt.controller.start(resyncMs);
+    console.log(`hades controller running (event-driven, resync every ${resyncMs}ms, data=${dataDir})`);
     // The control plane also serves the API on PORT (default 7347).
     const port = Number(process.env.PORT ?? 7347);
     const server = createServer(rt);

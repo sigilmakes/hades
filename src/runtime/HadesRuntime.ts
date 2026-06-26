@@ -38,8 +38,6 @@ import { nameOf, type HadesResource } from "../domain/resources.js";
  * cluster — they are test injections, not a peer runtime.
  */
 export class HadesRuntime extends Runtime {
-    private readonly kubeController?: KubeController;
-
     constructor(
         override readonly dataDir: string,
         override readonly state: StateStorePort,
@@ -57,8 +55,7 @@ export class HadesRuntime extends Runtime {
         override readonly projections: ProjectionService,
         override readonly kubeClient?: KubeClient,
     ) {
-        super(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler, syscalls, projections, kubeClient);
-        this.kubeController = kubeClient ? new KubeController(state, events, kubeClient) : undefined;
+        super(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler, syscalls, projections, kubeClient, kubeClient ? new KubeController(state, events, kubeClient) : undefined);
     }
 
     override async init(): Promise<this> {

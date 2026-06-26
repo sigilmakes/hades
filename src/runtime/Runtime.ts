@@ -13,6 +13,7 @@ import type { ScheduleService } from "../services/ScheduleService.js";
 import type { SyscallService } from "../services/SyscallService.js";
 import type { ProjectionService } from "../services/ProjectionService.js";
 import type { KubeClient } from "../ports/KubeClient.js";
+import type { KubeController } from "../controller/KubeController.js";
 
 /**
  * A Hades runtime — the kernel services wired against stores + ports.
@@ -45,6 +46,8 @@ export abstract class Runtime {
         readonly projections: ProjectionService,
         /** The k8s client, if a live cluster is attached (absent in tests). */
         readonly kubeClient?: KubeClient,
+        /** The k8s controller, set by {@link HadesRuntime} when a cluster is attached. */
+        protected readonly kubeController?: KubeController,
     ) {}
 
     abstract init(): Promise<this>;
@@ -62,6 +65,11 @@ export abstract class Runtime {
         this.ready = false;
         await this.state.close?.();
         await this.events.close?.();
+    }
+
+    /** The k8s controller, if a live cluster is attached (absent in tests). */
+    get controller(): KubeController | undefined {
+        return this.kubeController;
     }
 
     async apply(resource: HadesResource): Promise<HadesResource> {
