@@ -10,6 +10,8 @@ import { ScheduleService } from "../services/ScheduleService.js";
 import { LocalConfinedHands } from "../adapters/hands/LocalConfinedHands.js";
 import { PiSdkBrainDriver } from "../adapters/brain/PiSdkBrainDriver.js";
 import { TestBrainDriver } from "../adapters/brain/TestBrainDriver.js";
+import { HttpBrainDriver } from "../adapters/brain/HttpBrainDriver.js";
+import { HttpHandsClient } from "../adapters/hands/HttpHandsClient.js";
 import { JsonStateStore } from "../adapters/store/JsonStateStore.js";
 import { JsonlEventStore } from "../adapters/store/JsonlEventStore.js";
 import { Runtime } from "./Runtime.js";
@@ -70,10 +72,7 @@ export function createDistributedRuntime(dataDir: string, options: DistributedRu
     const schedules = new ScheduleService(state, events, policy);
     const handsResolver = options.handsResolver ?? new LocalHandsResolverAdapter(agents, events);
     let runtime: DistributedRuntime;
-    const brainFactory = options.brainDriverFactory ?? ((mode: BrainMode) => {
-        if (mode === "pi-sdk") return new PiSdkBrainDriver(events, (agent) => agents.homeRoot(agent), (a, s) => handsResolver.for(a, s));
-        return new TestBrainDriver(events, (a, s) => handsResolver.for(a, s), schedules, (subject, spec) => runtime.spawnAgent(subject, spec));
-    });
+    const brainFactory = options.brainDriverFactory ?? defaultDistributedBrainFactory(events, agents, handsResolver, schedules, () => runtime);
     const brain = new BrainService(events, brainFactory);
     const messages = new MessageService(state, events, agents, brain);
     const homes = new HomeService(dataDir, state, events);
@@ -95,6 +94,29 @@ class LocalHandsResolverAdapter implements HandsResolver {
             sessionId: nameOf(session),
         });
     }
+}
+
+/**
+ * Default brain factory for the distributed runtime.
+ *
+ * - If `HADES_BRAIN_URL` is set, route to a real brain pod via `HttpBrainDriver`
+ *   (P1: the parent→brain wire). The pod owns the model loop.
+ * - Otherwise fall back to the dev adapters so the shared kernel is testable
+ *   end-to-end without a pod. P1 tests that exercise the HTTP path set the env.
+ */
+function defaultDistributedBrainFactory(
+    events: EventStorePort,
+    agents: AgentService,
+    handsResolver: HandsResolver,
+    schedules: ScheduleService,
+    runtime: () => DistributedRuntime,
+): (mode: BrainMode) => BrainDriver {
+    const brainUrl = process.env.HADES_BRAIN_URL;
+    if (brainUrl) return () => new HttpBrainDriver(brainUrl);
+    return (mode: BrainMode) => {
+        if (mode === "pi-sdk") return new PiSdkBrainDriver(events, (agent) => agents.homeRoot(agent), (a, s) => handsResolver.for(a, s));
+        return new TestBrainDriver(events, (a, s) => handsResolver.for(a, s), schedules, (subject, spec) => runtime().spawnAgent(subject, spec));
+    };
 }
 
 export type DistributedRuntimeOptions = {

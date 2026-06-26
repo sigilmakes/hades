@@ -4,7 +4,8 @@
   "description": "Kubernetes-native agent operating system prototype",
   "type": "module",
   "bin": {
-    "hades": "dist/cli.js"
+    "hades": "dist/cli.js",
+    "hades-brain-pod": "dist/brain-pod/cli.js"
   },
   "scripts": {
     "clean": "node scripts/clean-dist.mjs",
@@ -13,6 +14,7 @@
     "demo": "npm run build && node dist/cli.js demo",
     "serve": "npm run build && node dist/cli.js serve",
     "hades": "npm run build --silent && node dist/cli.js",
+    "brain-pod": "npm run build --silent && node dist/brain-pod/cli.js",
     "prepack": "npm run build"
   },
   "engines": {
