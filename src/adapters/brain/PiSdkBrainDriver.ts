@@ -25,7 +25,7 @@ export class PiSdkBrainDriver implements BrainDriver {
             cwd: homeRoot,
             agentDir: getAgentDir(),
             extensionFactories: [
-                (api: unknown) => new HadesToolRegistrar(hands, defineTool, Type).register(api as any),
+                (api: unknown) => new HadesToolRegistrar(hands, defineTool, Type).register(api as { registerTool(tool: unknown): void }),
             ],
         });
         await resourceLoader.reload();
@@ -36,9 +36,10 @@ export class PiSdkBrainDriver implements BrainDriver {
             sessionManager: SessionManager.inMemory(homeRoot),
         });
         let text = "";
-        const unsubscribe = piSession.subscribe((event: any) => {
+        type SessionEvent = { type: string; assistantMessageEvent?: { type: string; delta?: string } };
+        const unsubscribe = piSession.subscribe((event: SessionEvent) => {
             if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
-                text += event.assistantMessageEvent.delta;
+                text += event.assistantMessageEvent.delta ?? "";
             }
         });
         try {
