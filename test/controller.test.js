@@ -242,3 +242,16 @@ test("controller keeps hands default-deny egress when no networkEgress grant", a
     assert.ok(netpol);
     assert.equal(netpol.spec.egress.length, 0, "no network grant -> default-deny egress");
 });
+
+test("controller writes status to the cluster CRD status subresource", async () => {
+    const { dist, kube } = await fixture();
+    await dist.reconcile();
+    // The controller patched the Agent's status to the (fake) cluster.
+    const patch = kube.statusPatches.find((p) => p.kind === "Agent" && p.name === AGENT);
+    assert.ok(patch, "agent status patched to the cluster");
+    assert.equal(patch.status.phase, "active");
+    assert.equal(patch.status.brainPod, `brain-${AGENT}`);
+    const homePatch = kube.statusPatches.find((p) => p.kind === "Home" && p.name === HOME);
+    assert.ok(homePatch, "home status patched to the cluster");
+    assert.equal(homePatch.status.phase, "ready");
+});

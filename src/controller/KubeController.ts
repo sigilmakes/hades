@@ -306,8 +306,16 @@ export class KubeController {
     }
 
     private async patchStatus(resource: HadesResource, status: Record<string, any>): Promise<void> {
+        // Update the local state mirror (always) + the cluster CRD status subresource
+        // (best-effort: if the CRD isn't applied yet, the local mirror still holds it).
         resource.status = { ...(resource.status ?? {}), ...status };
         await this.state.save();
+        try {
+            await this.kube.patchStatus(namespaceOf(resource), resource.kind, nameOf(resource), resource.status);
+        } catch {
+            // The CRD may not exist yet (ensureHadesResources runs next pass); the local
+            // mirror is the fallback. kubectl get agents shows the cluster status once it lands.
+        }
     }
 }
 

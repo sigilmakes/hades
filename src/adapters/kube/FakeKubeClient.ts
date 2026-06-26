@@ -39,15 +39,23 @@ export class FakeKubeClient implements KubeClient {
     async get(namespace: string, kind: string, name: string): Promise<KubeObject | undefined> {
         const existing = this.objects.get(this.key(namespace, kind, name));
         if (existing) return existing;
-        // Hades CRDs (Agent/Home/Hands/Schedule/...) are the owners of native
-        // objects. In a real cluster they exist as CRDs with server-assigned
-        // uids. The fake synthesizes a uid so ownerReferences resolve in tests.
         const hadesKinds = new Set(["Agent", "Home", "Hands", "Session", "BrainBinding", "Listener", "Schedule", "Run", "Approval", "CapabilityGrant", "AgentClass"]);
         if (hadesKinds.has(kind)) {
             return { apiVersion: "hades.dev/v1alpha1", kind, metadata: { name, namespace, uid: `fake-${kind}-${name}` } };
         }
         return undefined;
     }
+
+    async patchStatus(namespace: string, kind: string, name: string, status: Record<string, unknown>): Promise<void> {
+        // Record the status patch on the fake object so tests can assert it was called.
+        const key = this.key(namespace, kind, name);
+        const existing = this.objects.get(key);
+        if (existing) existing.status = { ...(existing.status ?? {}), ...status };
+        this.statusPatches.push({ namespace, kind, name, status });
+    }
+
+    /** Status patches the controller issued (test assertions). */
+    readonly statusPatches: Array<{ namespace: string; kind: string; name: string; status: Record<string, unknown> }> = [];
 
     async exec(_namespace: string, _pod: string, _container: string, command: string[], _stdin?: string): Promise<ExecResult> {
         // The fake client cannot exec into a real pod. Tests that need exec
