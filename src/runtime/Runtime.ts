@@ -12,18 +12,20 @@ import type { Reconciler } from "../services/Reconciler.js";
 import type { ScheduleService } from "../services/ScheduleService.js";
 import type { SyscallService } from "../services/SyscallService.js";
 import type { ProjectionService } from "../services/ProjectionService.js";
+import type { KubeClient } from "../ports/KubeClient.js";
 
 /**
  * A Hades runtime — the kernel services wired against stores + ports.
  *
- * Both {@link LocalRuntime} (dev, in-process adapters) and the deploy runtime
- * (pod-backed adapters behind the same ports) inherit this shape. Kernel
- * services (Agent/Home/Message/Schedule/Policy/Listener/Reconciler) are
- * mode-agnostic: they depend on ports, never on concrete adapters. The mode
- * only changes which adapters satisfy the ports.
+ * Kernel services (Agent/Home/Message/Schedule/Policy/Listener/Reconciler/
+ * Syscall/Projection) depend on ports, never on concrete adapters. The
+ * composition root ({@link createRuntime}) selects which adapters satisfy
+ * the ports: in-process defaults are the test substrate; a live cluster
+ * injects pod-backed adapters through the same options.
  *
- * This formalizes the dev/deploy mode split: the local runtime and the
- * distributed runtime share one kernel; only the substrate differs.
+ * There is no "mode": Hades is one k8s-native kernel. Brains and hands are
+ * pods. The in-process adapters exist so the kernel is testable without a
+ * cluster — they are test injections, not a peer runtime.
  */
 export abstract class Runtime {
     constructor(
@@ -41,10 +43,9 @@ export abstract class Runtime {
         readonly reconciler: Reconciler,
         readonly syscalls: SyscallService,
         readonly projections: ProjectionService,
+        /** The k8s client, if a live cluster is attached (absent in tests). */
+        readonly kubeClient?: KubeClient,
     ) {}
-
-    /** A label for which substrate is active: "local" or "distributed". */
-    abstract readonly mode: "local" | "distributed";
 
     abstract init(): Promise<this>;
 
@@ -77,7 +78,7 @@ export abstract class Runtime {
      * returns the reply. Like a daemon forking a transient unit.
      *
      * This logic is mode-agnostic: it uses only port-level services. The
-     * deploy runtime re-targets the *substrate* (the spawned agent becomes a
+     * k8s controller re-targets the *substrate* (the spawned agent becomes a
      * real pod) but this method body is unchanged — the spawn syscall surface
      * is stable.
      */

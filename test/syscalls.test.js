@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createRuntime } from "../dist/runtime/LocalRuntime.js";
+import { createRuntime } from "../dist/runtime/HadesRuntime.js";
 import { createServer } from "../dist/adapters/api/server.js";
 
 const NS = "syscall-test";
@@ -13,7 +13,7 @@ const SESSION = "wren-default";
 
 async function fixture() {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-syscall-"));
-    const runtime = await createRuntime(dir).init();
+    const runtime = await (await createRuntime(dir)).init();
     await runtime.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
     await runtime.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "test" } } });
     return { dir, runtime };

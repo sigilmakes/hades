@@ -3,13 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createRuntime } from "../dist/runtime/LocalRuntime.js";
-import { createDistributedRuntime } from "../dist/runtime/DistributedRuntime.js";
+import { createRuntime } from "../dist/runtime/HadesRuntime.js";
 import { SystemAgents } from "../dist/services/SystemAgents.js";
 
 test("system agents are bootstrapped on reconcile in the hades-system namespace", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-sysag-"));
-    const runtime = await createRuntime(dir).init();
+    const runtime = await (await createRuntime(dir)).init();
     await runtime.reconcile();
     for (const name of SystemAgents.NAMES) {
         const agent = runtime.state.findByName("Agent", name, SystemAgents.NAMESPACE);
@@ -32,7 +31,7 @@ test("provisioner has create/create/attach capabilities; janitor has cleanup; au
 
 test("system agents reconcile is idempotent (no duplicate grants)", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-sysag-"));
-    const runtime = await createRuntime(dir).init();
+    const runtime = await (await createRuntime(dir)).init();
     await runtime.reconcile();
     await runtime.reconcile();
     await runtime.reconcile();
@@ -42,7 +41,7 @@ test("system agents reconcile is idempotent (no duplicate grants)", async () => 
 
 test("system agents emit creation events", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-sysag-"));
-    const runtime = await createRuntime(dir).init();
+    const runtime = await (await createRuntime(dir)).init();
     await runtime.reconcile();
     const sys = await runtime.events.list("system");
     assert.ok(sys.some((e) => e.type === "system-agent.created" && e.payload.agent === "provisioner"));
@@ -51,7 +50,7 @@ test("system agents emit creation events", async () => {
 
 test("system agents are bootstrapped in distributed mode too", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-sysag-dist-"));
-    const dist = await (await createDistributedRuntime(dir)).init();
+    const dist = await (await createRuntime(dir)).init();
     await dist.reconcile();
     assert.ok(dist.state.findByName("Agent", "provisioner", SystemAgents.NAMESPACE));
     assert.ok(dist.state.findByName("Agent", "janitor", SystemAgents.NAMESPACE));

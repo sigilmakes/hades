@@ -4,7 +4,7 @@ import { access, chmod, mkdtemp, readdir, readFile, symlink, writeFile } from "n
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { createRuntime } from "../dist/runtime/LocalRuntime.js";
+import { createRuntime } from "../dist/runtime/HadesRuntime.js";
 import { LocalConfinedHands, sanitizedEnv } from "../dist/adapters/hands/LocalConfinedHands.js";
 import { deniedShebangInterpreter, parseConfinedExecCommand } from "../dist/adapters/hands/ConfinedCommandParser.js";
 import { isScheduleDue } from "../dist/domain/schedule-due.js";
@@ -46,7 +46,7 @@ test("primitive catalog adopts useful surfaces and rejects noise", () => {
 
 async function runtimeFixture() {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
-    const runtime = await createRuntime(dir).init();
+    const runtime = await (await createRuntime(dir)).init();
     await runtime.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: { layout: { create: ["vault", "bin", "cron.d"] } } });
     await runtime.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { displayName: "Raven", homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "test" } } });
     await runtime.apply({ kind: "Listener", metadata: { namespace: NS, name: "raven-cli" }, spec: { agentRef: AGENT, platform: "cli" } });
@@ -189,7 +189,7 @@ test("concurrent reconciles do not double-fire a matching cron schedule", async 
 
 test("a transient delivery failure records schedule.failed without invalidating the schedule", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
-    const runtime = await createRuntime(dir).init();
+    const runtime = await (await createRuntime(dir)).init();
     await runtime.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
     await runtime.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "test" } } });
     await runtime.reconcile();
@@ -344,7 +344,7 @@ test("createOwnSchedule cannot target another agent", async () => {
 
 test("test brain schedule directive is policy checked", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
-    const runtime = await createRuntime(dir).init();
+    const runtime = await (await createRuntime(dir)).init();
     await runtime.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
     await runtime.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "test" } } });
     await runtime.reconcile();
@@ -356,7 +356,7 @@ test("test brain schedule directive is policy checked", async () => {
 
 test("capability denial is explicit", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
-    const runtime = await createRuntime(dir).init();
+    const runtime = await (await createRuntime(dir)).init();
     await runtime.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
     await runtime.apply({ kind: "Agent", metadata: { namespace: NS, name: "nogrant" }, spec: { homeRef: HOME, defaultSession: "nogrant-default" } });
     await runtime.reconcile();
@@ -371,7 +371,7 @@ test("capability denial is explicit", async () => {
 
 test("home controller rejects bootstrap path escapes", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
-    const runtime = await createRuntime(dir).init();
+    const runtime = await (await createRuntime(dir)).init();
     await runtime.apply({
         kind: "Home",
         metadata: { namespace: "agent-generic", name: "generic-home" },
@@ -382,7 +382,7 @@ test("home controller rejects bootstrap path escapes", async () => {
 
 test("home controller bootstraps generic userland files", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
-    const runtime = await createRuntime(dir).init();
+    const runtime = await (await createRuntime(dir)).init();
     await runtime.apply({
         kind: "Home",
         metadata: { namespace: "agent-generic", name: "generic-home" },
@@ -467,7 +467,7 @@ test("API exposes agents, primitives, and message endpoint", async () => {
 
 test("candidate primitive resources are not accepted before behavior exists", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-test-"));
-    const runtime = await createRuntime(dir).init();
+    const runtime = await (await createRuntime(dir)).init();
     const candidateKinds = ["Gateway", "Node", "ToolProvider", "Workflow", "ExternalSession", "SandboxProfile", "SecretLease"];
     const crds = await readFile(path.resolve("deploy/crds/hades.dev_resources.yaml"), "utf8");
     for (const kind of candidateKinds) {

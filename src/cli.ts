@@ -5,15 +5,13 @@ import { createServer } from "./adapters/api/server.js";
 import { loadManifest } from "./adapters/manifest.js";
 import { dataDirFromEnv } from "./adapters/store/JsonStateStore.js";
 import { parsePrimitiveDecision } from "./domain/primitives.js";
-import { createDistributedRuntime } from "./runtime/DistributedRuntime.js";
-import { createRuntime } from "./runtime/LocalRuntime.js";
+import { createRuntime, type RuntimeOptions } from "./runtime/HadesRuntime.js";
 import type { Runtime } from "./runtime/Runtime.js";
 import { PrimitiveService } from "./services/PrimitiveService.js";
 
 const [rawCommand = "help", ...args] = process.argv.slice(2);
 const command = rawCommand === "--help" || rawCommand === "-h" ? "help" : rawCommand;
 const dataDir = dataDirFromEnv();
-const distributed = process.env.HADES_MODE === "distributed";
 let runtimePromise: Promise<Runtime> | undefined;
 
 try {
@@ -49,8 +47,8 @@ Commands:
   primitives [decision]        list researched AgentOS primitives
                                decision: adopt, defer, or reject
   serve [port]                 start the Hades API server
-  controller [intervalMs]      run the distributed reconcile loop
-                               (deploy mode; set HADES_MODE=distributed)
+  controller [intervalMs]      run the reconcile loop
+                               (set HADES_KUBE=1 to reconcile a live cluster)
   attach <agent>               attach a CLI console to an agent
   demo [manifest] [agent]      run a local loop using a manifest
                                default uses offline test demo manifest
@@ -61,26 +59,26 @@ Message options:
 
 Environment:
   HADES_DATA_DIR               state directory (default ./.hades)
-  HADES_BRAIN_MODE             pi-sdk (default) or test (offline/tests)
-  HADES_MODE                   distributed (deploy mode) or unset (dev)
-  HADES_RECONCILE_INTERVAL_MS  controller loop interval (default 5000)
+  HADES_BRAIN_MODE            pi-sdk (default) or test (offline/tests)
+  HADES_KUBE                  set to 1 to reconcile against a live cluster
+  HADES_RECONCILE_INTERVAL_MS controller loop interval (default 5000)
 `);
 }
 
 async function runtime(): Promise<Runtime> {
-    runtimePromise ??= (distributed ? buildDistributedRuntime() : createRuntime(dataDir).init());
+    runtimePromise ??= buildRuntime();
     return runtimePromise;
 }
 
-async function buildDistributedRuntime(): Promise<Runtime> {
-    const opts: Record<string, unknown> = {};
-    // Use the real k8s client when HADES_KUBE=1 (deploy to a live cluster);
-    // otherwise the FakeKubeClient stands in (tests/dev without a cluster).
+async function buildRuntime(): Promise<Runtime> {
+    const opts: RuntimeOptions = {};
+    // Reconcile a live cluster when HADES_KUBE=1; otherwise the controller is
+    // absent (the in-process Reconciler still runs for the local state mirror).
     if (process.env.HADES_KUBE === "1") {
         const { KubeClientNode } = await import("./adapters/kube/KubeClientNode.js");
         opts.kubeClient = new KubeClientNode();
     }
-    const rt = await createDistributedRuntime(dataDir, opts);
+    const rt = await createRuntime(dataDir, opts);
     return rt.init();
 }
 
@@ -129,15 +127,15 @@ async function serve(args: string[]): Promise<void> {
     await rt.reconcile();
     const port = Number(args[0] ?? process.env.PORT ?? 7347);
     const server = createServer(rt);
-    server.listen(port, () => console.log(`hades-api listening on :${port}, mode=${rt.mode}, data=${dataDir}`));
+    server.listen(port, () => console.log(`hades-api listening on :${port}, data=${dataDir}`));
 }
 
 async function controller(args: string[]): Promise<void> {
     const rt = await runtime();
     const intervalMs = Number(args[0] ?? process.env.HADES_RECONCILE_INTERVAL_MS ?? 5000);
-    if (rt.mode !== "distributed") console.warn(`hades controller: running in '${rt.mode}' mode; set HADES_MODE=distributed for deploy mode`);
+    if (!rt.kubeClient) console.warn("hades controller: HADES_KUBE not set — reconciling local state only (no live cluster)");
     await rt.reconcile();
-    console.log(`hades controller reconciling every ${intervalMs}ms (mode=${rt.mode}, data=${dataDir})`);
+    console.log(`hades controller reconciling every ${intervalMs}ms (data=${dataDir})`);
     setInterval(() => {
         rt.reconcile().catch((error) => console.error(`reconcile failed: ${error instanceof Error ? error.message : error}`));
     }, intervalMs);

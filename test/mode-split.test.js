@@ -4,8 +4,10 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { createDistributedRuntime, NotImplementedError } from "../dist/runtime/DistributedRuntime.js";
-import { createRuntime } from "../dist/runtime/LocalRuntime.js";
+import { createRuntime } from "../dist/runtime/HadesRuntime.js";
+import { FakeKubeClient } from "../dist/adapters/kube/FakeKubeClient.js";
+import { SqliteStateStore } from "../dist/adapters/store/SqliteStateStore.js";
+import { SqliteEventStore } from "../dist/adapters/store/SqliteEventStore.js";
 
 const NS = "mode-test";
 const AGENT = "raven";
@@ -13,64 +15,79 @@ const HOME = "raven-home";
 const SESSION = "raven-default";
 
 async function fixture() {
-    const dir = await mkdtemp(path.join(tmpdir(), "hades-mode-"));
-    const local = await createRuntime(dir).init();
-    await local.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
-    await local.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "test" } } });
-    await local.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "self" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["createOwnSchedule"], constraints: { namespace: "own" } } });
-    await local.reconcile();
-    return { dir, local };
+    const dir = await mkdtemp(path.join(tmpdir(), "hades-"));
+    const rt = await (await createRuntime(dir)).init();
+    await rt.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
+    await rt.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "test" } } });
+    await rt.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "self" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["createOwnSchedule"], constraints: { namespace: "own" } } });
+    await rt.reconcile();
+    return { dir, rt };
 }
 
-test("local runtime reports local mode", async () => {
-    const { local } = await fixture();
-    assert.equal(local.mode, "local");
+test("the runtime wires all kernel services", async () => {
+    const { rt } = await fixture();
+    assert.ok(rt.agents);
+    assert.ok(rt.brain);
+    assert.ok(rt.messages);
+    assert.ok(rt.reconciler);
+    assert.ok(rt.schedules);
+    assert.ok(rt.policy);
+    assert.ok(rt.syscalls);
+    assert.ok(rt.projections);
 });
 
-test("distributed runtime reports distributed mode and reuses the kernel services", async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), "hades-mode-"));
-    const dist = await (await createDistributedRuntime(dir)).init();
-    assert.equal(dist.mode, "distributed");
-    // Kernel services exist and are the same shape as local mode.
-    assert.ok(dist.agents);
-    assert.ok(dist.brain);
-    assert.ok(dist.messages);
-    assert.ok(dist.reconciler);
-    assert.ok(dist.schedules);
-    assert.ok(dist.policy);
+test("without a kube client the controller does not run (local state only)", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "hades-"));
+    const rt = await (await createRuntime(dir)).init();
+    assert.equal(rt.kubeClient, undefined);
+    // Reconcile still works against the in-memory state mirror.
+    await rt.reconcile();
+    assert.ok(rt.state);
 });
 
-test("distributed runtime runs the same kernel loop against the shared stores", async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), "hades-mode-"));
-    const dist = await (await createDistributedRuntime(dir)).init();
-    await dist.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
-    await dist.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "test" } } });
-    await dist.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "self" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["createOwnSchedule"], constraints: { namespace: "own" } } });
-    await dist.reconcile();
-    const { reply } = await dist.messageAgent(`${NS}/${AGENT}`, "!write vault/note.md <<<from distributed");
+test("injecting a kube client runs the controller on reconcile", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "hades-"));
+    const kube = new FakeKubeClient();
+    const state = new SqliteStateStore(dir);
+    const events = new SqliteEventStore(dir);
+    const rt = await (await createRuntime(dir, { kubeClient: kube, stateStore: state, eventStore: events })).init();
+    assert.ok(rt.kubeClient, "kube client is exposed on the runtime");
+    await rt.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
+    await rt.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "test" } } });
+    await rt.reconcile();
+    // The controller reconciled the agent into a brain Deployment.
+    assert.ok(kube.get(NS, "Deployment", `brain-${AGENT}`));
+});
+
+test("the kernel loop runs the same against injected stores", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "hades-"));
+    const rt = await (await createRuntime(dir)).init();
+    await rt.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
+    await rt.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "test" } } });
+    await rt.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "self" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["createOwnSchedule"], constraints: { namespace: "own" } } });
+    await rt.reconcile();
+    const { reply } = await rt.messageAgent(`${NS}/${AGENT}`, "!write vault/note.md <<<hello");
     assert.match(reply, /wrote vault\/note.md/);
-    // State is durable in the shared store.
-    const state = await dist.snapshot();
+    const state = await rt.snapshot();
     assert.ok(state.Agent[`${NS}/${AGENT}`]);
 });
 
-test("distributed runtime spawn delegates to dev-mode semantics in P0", async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), "hades-mode-"));
-    const dist = await (await createDistributedRuntime(dir)).init();
-    await dist.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
-    await dist.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "test" } } });
-    await dist.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "spawn-grant" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["spawnAgent"], constraints: { namespace: "own" } } });
-    await dist.reconcile();
-    const result = await dist.spawnAgent({ kind: "Agent", name: AGENT, namespace: NS }, { name: "w1", prompt: "hi" });
-    assert.match(result.reply, /received:/);
-    const worker = dist.state.findByName("Agent", "w1", NS);
-    assert.equal(worker.spec.lifecycle, "ephemeral");
-    assert.equal(worker.status.phase, "completed");
+test("durable sqlite stores survive a controller restart", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "hades-durable-"));
+    const rt1 = await (await createRuntime(dir)).init();
+    await rt1.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
+    await rt1.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "test" } } });
+    await rt1.reconcile();
+    await rt1.messageAgent(`${NS}/${AGENT}`, "!write vault/durable.md <<<survives");
+    // Simulate a controller pod restart: drop the runtime, make a new one on the same PVC.
+    const rt2 = await (await createRuntime(dir)).init();
+    assert.ok(rt2.state.get("Agent", NS, AGENT), "agent survived restart");
+    assert.ok(rt2.state.get("Home", NS, HOME), "home survived restart");
+    const events = await rt2.events.list(SESSION);
+    assert.ok(events.some((e) => e.type === "home.file.written"), "events survived restart");
 });
 
-test("hades controller command starts and reports distributed mode", () => {
-    // The controller command should construct a runtime and report its mode.
-    // We run with a tiny interval and kill it; the smoke is that it boots.
+test("hades controller command boots and reports the reconcile interval", () => {
     const cwd = mkdtempSync();
     const result = spawnSync(process.execPath, [path.resolve("dist/cli.js"), "controller", "50"], {
         cwd,
@@ -79,18 +96,7 @@ test("hades controller command starts and reports distributed mode", () => {
         env: { ...process.env, HADES_DATA_DIR: path.join(cwd, ".hades") },
     });
     assert.match(result.stdout, /hades controller reconciling every 50ms/);
-    assert.match(result.stdout, /mode=local/); // no HADES_MODE=distributed set
-});
-
-test("HADES_MODE=distributed makes the cli construct the distributed runtime", () => {
-    const cwd = mkdtempSync();
-    const result = spawnSync(process.execPath, [path.resolve("dist/cli.js"), "controller", "50"], {
-        cwd,
-        encoding: "utf8",
-        timeout: 1500,
-        env: { ...process.env, HADES_DATA_DIR: path.join(cwd, ".hades"), HADES_MODE: "distributed" },
-    });
-    assert.match(result.stdout, /mode=distributed/);
+    assert.match(result.stderr, /HADES_KUBE not set/);
 });
 
 test("deploy manifests use only standard k8s API objects — no hostPath", async () => {
@@ -109,18 +115,3 @@ function mkdtempSync() {
     const dir = spawnSync("mktemp", ["-d"], { encoding: "utf8" }).stdout.trim();
     return dir;
 }
-
-test("distributed runtime uses durable sqlite stores that survive a controller restart", async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), "hades-durable-"));
-    const dist1 = await (await createDistributedRuntime(dir)).init();
-    await dist1.apply({ kind: "Home", metadata: { namespace: "mode-test", name: "raven-home" }, spec: {} });
-    await dist1.apply({ kind: "Agent", metadata: { namespace: "mode-test", name: "raven" }, spec: { homeRef: "raven-home", defaultSession: "raven-default", desiredState: "active", brain: { mode: "test" } } });
-    await dist1.reconcile();
-    await dist1.messageAgent("mode-test/raven", "!write vault/durable.md <<<survives");
-    // Simulate a controller pod restart: drop the runtime, make a new one on the same PVC.
-    const dist2 = await (await createDistributedRuntime(dir)).init();
-    assert.ok(dist2.state.get("Agent", "mode-test", "raven"), "agent survived restart");
-    assert.ok(dist2.state.get("Home", "mode-test", "raven-home"), "home survived restart");
-    const events = await dist2.events.list("raven-default");
-    assert.ok(events.some((e) => e.type === "home.file.written"), "events survived restart");
-});

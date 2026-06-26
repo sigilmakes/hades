@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createDistributedRuntime } from "../dist/runtime/DistributedRuntime.js";
+import { createRuntime } from "../dist/runtime/HadesRuntime.js";
 import { FakeKubeClient } from "../dist/adapters/kube/FakeKubeClient.js";
 import { KubeController, toCronExpression } from "../dist/controller/KubeController.js";
 import { SqliteStateStore } from "../dist/adapters/store/SqliteStateStore.js";
@@ -18,7 +18,7 @@ async function fixture() {
     const kube = new FakeKubeClient();
     const state = new SqliteStateStore(dir);
     const events = new SqliteEventStore(dir);
-    const dist = await (await createDistributedRuntime(dir, { kubeClient: kube, stateStore: state, eventStore: events })).init();
+    const dist = await (await createRuntime(dir, { kubeClient: kube, stateStore: state, eventStore: events })).init();
     await dist.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
     await dist.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: `${AGENT}-default`, desiredState: "active", brain: { mode: "test" } } });
     return { dir, dist, kube, state, events };

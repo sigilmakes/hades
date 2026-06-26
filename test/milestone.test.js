@@ -7,7 +7,7 @@ import { HandsPod } from "../dist/hands-pod/server.js";
 import { BrainPod } from "../dist/brain-pod/server.js";
 import { HttpBrainDriver } from "../dist/adapters/brain/HttpBrainDriver.js";
 import { McpHandsClient } from "../dist/adapters/hands/McpHandsClient.js";
-import { createDistributedRuntime } from "../dist/runtime/DistributedRuntime.js";
+import { createRuntime } from "../dist/runtime/HadesRuntime.js";
 import { FakeKubeClient } from "../dist/adapters/kube/FakeKubeClient.js";
 
 const NS = "milestone";
@@ -41,7 +41,7 @@ test("milestone: one agent end-to-end over HTTP — message in, tool call over M
         // Drive the controller to reconcile an Agent manifest.
         const dir = await mkdtemp(path.join(tmpdir(), "hades-milestone-state-"));
         const kube = new FakeKubeClient();
-        const dist = await (await createDistributedRuntime(dir, { kubeClient: kube })).init();
+        const dist = await (await createRuntime(dir, { kubeClient: kube })).init();
         await dist.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
         await dist.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "test", secretRef: "wren-creds" } } });
         await dist.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "self" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["createOwnSchedule"], constraints: { namespace: "own" } } });
