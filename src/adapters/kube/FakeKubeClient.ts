@@ -61,6 +61,17 @@ export class FakeKubeClient implements KubeClient {
     /** Status patches the controller issued (test assertions). */
     readonly statusPatches: Array<{ namespace: string; kind: string; name: string; status: Record<string, unknown> }> = [];
 
+    async getSecret(namespace: string, name: string): Promise<Record<string, string> | undefined> {
+        const secret = this.secrets.get(this.key(namespace, "Secret", name));
+        return secret ? { ...secret } : undefined;
+    }
+
+    /** Seed a fake Secret (test helper). */
+    seedSecret(namespace: string, name: string, data: Record<string, string>): void {
+        this.secrets.set(this.key(namespace, "Secret", name), data);
+    }
+    private readonly secrets = new Map<string, Record<string, string>>();
+
     async exec(_namespace: string, _pod: string, _container: string, command: string[], _stdin?: string): Promise<ExecResult> {
         // The fake client cannot exec into a real pod. Tests that need exec
         // behavior inject a custom KubeClient or assert via the controller's

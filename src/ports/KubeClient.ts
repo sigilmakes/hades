@@ -25,6 +25,8 @@ export interface KubeClient {
     get(namespace: string, kind: string, name: string): Promise<KubeObject | undefined>;
     /** Patch a Hades CRD's status subresource (kubectl get agents shows phase). */
     patchStatus(namespace: string, kind: string, name: string, status: Record<string, unknown>): Promise<void>;
+    /** Read a k8s Secret's decoded stringData (for resolving Listener secretRefs). */
+    getSecret(namespace: string, name: string): Promise<Record<string, string> | undefined>;
     /** Health check. */
     healthz(): Promise<boolean>;
     /** Exec a command in a pod's container. Returns stdout/stderr + exit code. */
@@ -38,6 +40,8 @@ export interface KubeObject {
     metadata: { name: string; namespace?: string; labels?: Record<string, string>; uid?: string; finalizers?: string[]; deletionTimestamp?: string; ownerReferences?: Array<{ apiVersion: string; kind: string; name: string; uid?: string; blockOwnerDeletion?: boolean; controller?: boolean }> };
     spec?: Record<string, any>;
     status?: Record<string, any>;
+    /** A k8s Secret's decoded stringData. */
+    data?: Record<string, string>;
     /** Wire format role/selector strings, etc. kept as opaque for the client. */
 }
 

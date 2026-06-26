@@ -111,6 +111,22 @@ export class KubeClientNode implements KubeClient {
         });
     }
 
+    async getSecret(namespace: string, name: string): Promise<Record<string, string> | undefined> {
+        try {
+            const secret = await this.core.readNamespacedSecret({ name, namespace });
+            const data = (secret as { data?: Record<string, string> }).data ?? {};
+            // k8s Secret data is base64-encoded; decode it.
+            const decoded: Record<string, string> = {};
+            for (const [key, value] of Object.entries(data)) {
+                decoded[key] = Buffer.from(value, "base64").toString("utf8");
+            }
+            return decoded;
+        } catch (error: any) {
+            if (error?.statusCode === 404 || error?.code === 404) return undefined;
+            throw error;
+        }
+    }
+
     async healthz(): Promise<boolean> {
         try {
             await this.core.listNamespace();
