@@ -1,4 +1,4 @@
-import { nameOf, namespaceOf, type HadesResource } from "../domain/resources.js";
+import { type HadesResource } from "../domain/resources.js";
 import type { StateStorePort } from "../ports/StateStore.js";
 import type { EventStorePort } from "../ports/EventStore.js";
 import type { PolicyPort } from "../ports/Policy.js";
