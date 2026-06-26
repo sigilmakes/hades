@@ -12,4 +12,6 @@ export interface StateStorePort {
     get(kind: HadesKind, namespace: string, name: string): HadesResource | undefined;
     list(kind: HadesKind, namespace?: string): HadesResource[];
     findByName(kind: HadesKind, name: string, namespace?: string): HadesResource | undefined;
+    /** Release resources (DB handles). Optional; no-op for in-memory stores. */
+    close?(): Promise<void>;
 }

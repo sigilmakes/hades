@@ -21,6 +21,7 @@ export class SqliteStateStore implements StateStorePort {
     readonly dbPath: string;
     state: HadesState = emptyState();
     private db!: DatabaseSync;
+    private closed = false;
 
     constructor(dataDir: string) {
         this.dataDir = dataDir;
@@ -102,7 +103,9 @@ export class SqliteStateStore implements StateStorePort {
         return this.list(kind, namespace).find((item) => item.metadata?.name === name);
     }
 
-    close(): void {
+    async close(): Promise<void> {
+        if (this.closed) return;
+        this.closed = true;
         this.db?.close();
     }
 }

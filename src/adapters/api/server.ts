@@ -8,6 +8,7 @@ export function createServer(runtime: Runtime): http.Server {
             const url = new URL(req.url ?? "/", "http://localhost");
             const body = await readBody(req);
             if (req.method === "GET" && url.pathname === "/healthz") return json(res, { ok: true });
+            if (req.method === "GET" && url.pathname === "/readyz") return json(res, runtime.ready ? { ok: true } : { ok: false, reason: "not initialized" }, runtime.ready ? 200 : 503);
             if (req.method === "GET" && url.pathname === "/hades/v1/agents") return json(res, runtime.state.list("Agent"));
             if (req.method === "GET" && url.pathname === "/hades/v1/events") return json(res, await runtime.events.list(url.searchParams.get("session") ?? undefined));
             if (req.method === "GET" && url.pathname === "/hades/v1/state") return json(res, await runtime.snapshot());

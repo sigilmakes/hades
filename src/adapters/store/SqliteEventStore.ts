@@ -25,6 +25,7 @@ export class SqliteEventStore implements EventStorePort {
     readonly dataDir: string;
     readonly dbPath: string;
     private db!: DatabaseSync;
+    private closed = false;
     private subscribers: Array<(event: HadesEvent) => void> = [];
     private seq = 0;
 
@@ -93,7 +94,9 @@ export class SqliteEventStore implements EventStorePort {
         };
     }
 
-    close(): void {
+    async close(): Promise<void> {
+        if (this.closed) return;
+        this.closed = true;
         this.db?.close();
     }
 }
