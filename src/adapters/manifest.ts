@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { load as loadYaml } from "js-yaml";
+import { validateResource } from "../domain/validate.js";
 import type { HadesResource } from "../domain/resources.js";
 
 /**
@@ -9,7 +10,11 @@ import type { HadesResource } from "../domain/resources.js";
  */
 export async function loadManifest(file: string): Promise<HadesResource[]> {
     const raw = await readFile(file, "utf8");
-    return parseDocuments(raw);
+    const resources = parseDocuments(raw);
+    // Validate every document before returning any, so 'hades apply' fails fast
+    // with a clear field-specific error instead of persisting half a manifest.
+    for (const resource of resources) validateResource(resource);
+    return resources;
 }
 
 /**

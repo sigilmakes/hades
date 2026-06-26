@@ -1,4 +1,5 @@
-import { type AgentSubject, type HadesResource, type HadesState } from "../domain/resources.js";
+import { type AgentSubject, type HadesKind, type HadesResource, type HadesState, nameOf, namespaceOf } from "../domain/resources.js";
+import { validateResource } from "../domain/validate.js";
 import type { EventStorePort } from "../ports/EventStore.js";
 import type { StateStorePort } from "../ports/StateStore.js";
 import type { AgentService } from "../services/AgentService.js";
@@ -73,6 +74,7 @@ export abstract class Runtime {
     }
 
     async apply(resource: HadesResource): Promise<HadesResource> {
+        validateResource(resource);
         const applied = await this.state.apply(resource);
         await this.events.append("system", "resource.applied", {
             kind: resource.kind,
