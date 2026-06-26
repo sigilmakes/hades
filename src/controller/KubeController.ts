@@ -3,7 +3,7 @@ import { HADES_FINALIZER, type KubeClient } from "../ports/KubeClient.js";
 import type { StateStorePort } from "../ports/StateStore.js";
 import type { EventStorePort } from "../ports/EventStore.js";
 import {
-    buildHands, buildHomePvc, buildBrain, buildSchedule, buildHadesCrd, buildConnectorNetworkPolicy, buildHandsImageJob, egressForAgent, toCronExpression,
+    buildHands, buildHomePvc, buildBrain, buildSchedule, buildHadesCrd, buildConnectorNetworkPolicy, buildHandsImageJob, buildSkillService, egressForAgent, toCronExpression,
     type OwnerRef,
 } from "./builders.js";
 
@@ -41,6 +41,7 @@ export class KubeController {
         for (const agent of this.state.list("Agent")) await this.reconcileAgent(agent);
         // Hands images are built before hands pods so the tag resolves this pass.
         for (const image of this.state.list("HandsImage")) await this.reconcileHandsImage(image);
+        for (const skill of this.state.list("Skill")) await this.reconcileSkill(skill);
         for (const hands of this.state.list("Hands")) await this.reconcileHands(hands);
         for (const listener of this.state.list("Listener")) await this.reconcileListener(listener);
         for (const schedule of this.state.list("Schedule")) await this.reconcileSchedule(schedule);
@@ -284,6 +285,23 @@ export class KubeController {
         await this.patchStatus(image, { phase, tag: `hands-${name}:${String(job.metadata.name).split("-").pop()}` });
     }
 
+    /**
+     * Skill → a `Service` exposing the agent's published HTTP capability.
+     * Symmetric with a Connector: the agent *exposes* an endpoint other agents
+     * call. The kernel wires the Service to the brain pod; the handler is
+     * userland (the agent implements the route). Status carries the cluster URL.
+     */
+    async reconcileSkill(skill: HadesResource): Promise<void> {
+        const ns = namespaceOf(skill);
+        const name = nameOf(skill);
+        if (await this.isDeleting(ns, "Skill", name)) return;
+        const ownerRef = await this.ownerRefOf(skill);
+        const svc = buildSkillService(skill, ownerRef ? [ownerRef] : undefined);
+        await this.kube.ensure(ns, svc);
+        await this.patchStatus(skill, { phase: "exposed", endpoint: `http://skill-${name}.${ns}.svc.cluster.local:${svc.spec.ports[0].port}` });
+        await this.events.append("system", "skill.exposed", { skill: name, agent: String(skill.spec?.agentRef ?? ""), endpoint: svc.spec.ports[0].port });
+    }
+
     /** Schedule → k8s CronJob (replaces the in-process croner in deploy mode). */
     async reconcileSchedule(schedule: HadesResource): Promise<void> {
         if (await this.isDeleting(namespaceOf(schedule), "Schedule", nameOf(schedule))) return;
@@ -321,6 +339,6 @@ export class KubeController {
     }
 }
 
-const HADES_KINDS = ["Agent", "Home", "Hands", "Session", "BrainBinding", "Listener", "Schedule", "Run", "Approval", "CapabilityGrant", "AgentClass", "Connector", "NamespaceQuota", "HandsImage"] as const;
+const HADES_KINDS = ["Agent", "Home", "Hands", "Session", "BrainBinding", "Listener", "Schedule", "Run", "Approval", "CapabilityGrant", "AgentClass", "Connector", "NamespaceQuota", "HandsImage", "Skill"] as const;
 
 export { toCronExpression };

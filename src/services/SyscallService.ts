@@ -170,6 +170,29 @@ export class SyscallService {
         return image;
     }
 
+    /**
+     * os.publishSkill — expose an HTTP capability other agents call. Symmetric
+     * with attachConnector (consume) — this *exposes* an endpoint. The kernel
+     * wires a Service to the brain pod; the handler is userland. Gated by the
+     * `publishSkill` capability.
+     */
+    async publishSkill(subject: Partial<AgentSubject>, spec: Record<string, any>): Promise<HadesResource> {
+        const resolved = this.policy.resolveAgentSubject(subject);
+        this.policy.assert(resolved, "publishSkill", { namespace: resolved.namespace });
+        if (!spec.name) throw new Error("publishSkill requires a name");
+        const skill: HadesResource = {
+            apiVersion: "hades.dev/v1alpha1",
+            kind: "Skill",
+            metadata: { namespace: resolved.namespace, name: String(spec.name) },
+            spec: { agentRef: spec.agentRef ?? resolved.name, port: spec.port ?? 7349, ...(spec.path ? { path: spec.path } : {}), ...(spec.description ? { description: spec.description } : {}) },
+            status: { phase: "pending" },
+        };
+        await this.state.apply(skill);
+        await this.events.append("system", "skill.published", { skill: spec.name, agent: skill.spec?.agentRef });
+        await this.audit(resolved, "publishSkill", { name: spec.name });
+        return skill;
+    }
+
     async emitArtifact(subject: Partial<AgentSubject>, spec: Record<string, any>): Promise<HadesResource> {
         const resolved = this.policy.resolveAgentSubject(subject);
         this.policy.assert(resolved, "emitArtifact", { namespace: resolved.namespace });
@@ -191,7 +214,7 @@ export class SyscallService {
     /** List syscalls an agent is currently permitted (introspection). */
     permittedSyscalls(subject: Partial<AgentSubject>): string[] {
         const resolved = this.policy.resolveAgentSubject(subject);
-        const all = ["createSchedule", "spawnAgent", "createAgent", "createHome", "attachListener", "attachConnector", "installPackages", "requestApproval", "respondApproval", "emitArtifact"];
+        const all = ["createSchedule", "spawnAgent", "createAgent", "createHome", "attachListener", "attachConnector", "installPackages", "publishSkill", "requestApproval", "respondApproval", "emitArtifact"];
         return all.filter((cap) => this.policy.can(resolved, cap, { namespace: resolved.namespace }).allowed);
     }
 
@@ -218,6 +241,7 @@ export const CAPABILITIES = [
     "attachListener",
     "attachConnector",
     "installPackages",
+    "publishSkill",
     "requestApproval",
     "respondApproval",
     "emitArtifact",

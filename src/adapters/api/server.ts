@@ -151,6 +151,13 @@ function routes(runtime: Runtime): Route[] {
         { method: "POST", path: "/hades/v1/syscalls/attach-listener", handler: (c) => s.attachListener(c.body.subject as never, c.body.spec as never) },
         { method: "POST", path: "/hades/v1/syscalls/attach-connector", handler: (c) => runtime.connectors.attach(c.body.subject as never, c.body.spec as never) },
         { method: "POST", path: "/hades/v1/syscalls/install-packages", handler: (c) => s.installPackages(c.body.subject as never, c.body.spec as never) },
+        { method: "POST", path: "/hades/v1/syscalls/publish-skill", handler: (c) => s.publishSkill(c.body.subject as never, c.body.spec as never) },
+        { method: "GET", path: "/hades/v1/skills", handler: (c) => {
+            const ns = c.url.searchParams.get("namespace") ?? undefined;
+            const agent = c.url.searchParams.get("agent");
+            const all = ns ? runtime.state.list("Skill", ns) : runtime.state.list("Skill");
+            return agent ? all.filter((sk) => sk.spec?.agentRef === agent) : all;
+        } },
         { method: "GET", path: "/hades/v1/connectors", handler: (c) => {
             const ns = c.url.searchParams.get("namespace") ?? undefined;
             const agent = c.url.searchParams.get("agent");

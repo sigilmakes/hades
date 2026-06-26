@@ -341,3 +341,35 @@ export function toCronExpression(spec: Record<string, unknown> | undefined): str
     }
     throw new Error(`Cannot convert schedule type ${type} to cron expression`);
 }
+
+/**
+ * Build a `Service` exposing a {@link Skill} — an agent-published HTTP
+ * capability other agents call. Symmetric with a Connector: a Connector
+ * *consumes* an endpoint; a Skill *exposes* one. The Service targets the
+ * agent's brain pod, so the agent's own logic (a route it implements) becomes
+ * addressable cluster-wide. The kernel only wires the route; the agent's
+ * handler is userland.
+ */
+export function buildSkillService(skill: HadesResource, ownerRefs?: OwnerRef[]): KubeObject {
+    const ns = namespaceOf(skill);
+    const name = nameOf(skill);
+    const agentName = String(skill.spec?.agentRef ?? name);
+    const port = Number(skill.spec?.port ?? 7349);
+    return {
+        apiVersion: "v1",
+        kind: "Service",
+        metadata: { name: `skill-${name}`, namespace: ns, labels: { ...hadesLabels(skill), "hades.dev/skill": name }, ownerReferences: ownerRefs },
+        spec: {
+            selector: { "hades.dev/agent": agentName },
+            ports: [{ port, targetPort: port, name: "http" }],
+        },
+    };
+}
+
+/** The cluster-internal URL another agent uses to call a Skill. */
+export function skillEndpoint(skill: HadesResource): string {
+    const ns = namespaceOf(skill);
+    const name = nameOf(skill);
+    const port = Number(skill.spec?.port ?? 80);
+    return `http://skill-${name}.${ns}.svc.cluster.local:${port}${String(skill.spec?.path ?? "")}`;
+}
