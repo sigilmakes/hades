@@ -242,3 +242,21 @@ test("controller keeps hands default-deny egress when no networkEgress grant", a
     assert.ok(netpol);
     assert.equal(netpol.spec.egress.length, 0, "no network grant -> default-deny egress");
 });
+
+test("controller resolves a Listener secretRef and marks it connected", async () => {
+    const { dist, kube } = await fixture();
+    kube.seedSecret(NS, "atlas-discord-token", { token: "bot-token-xyz" });
+    await dist.apply({ kind: "Listener", metadata: { namespace: NS, name: "atlas-discord" }, spec: { agentRef: AGENT, platform: "discord", secretRef: "atlas-discord-token" } });
+    await dist.reconcile();
+    const listener = dist.state.get("Listener", NS, "atlas-discord");
+    assert.equal(listener.status.phase, "connected");
+    assert.equal(listener.status.credentials, true);
+});
+
+test("controller marks a Listener waitingForSecret when the secret is absent", async () => {
+    const { dist } = await fixture();
+    await dist.apply({ kind: "Listener", metadata: { namespace: NS, name: "atlas-discord" }, spec: { agentRef: AGENT, platform: "discord", secretRef: "missing-secret" } });
+    await dist.reconcile();
+    const listener = dist.state.get("Listener", NS, "atlas-discord");
+    assert.equal(listener.status.phase, "waitingForSecret");
+});

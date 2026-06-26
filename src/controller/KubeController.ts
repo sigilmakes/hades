@@ -38,6 +38,7 @@ export class KubeController {
         for (const home of this.state.list("Home")) await this.reconcileHome(home);
         for (const agent of this.state.list("Agent")) await this.reconcileAgent(agent);
         for (const hands of this.state.list("Hands")) await this.reconcileHands(hands);
+        for (const listener of this.state.list("Listener")) await this.reconcileListener(listener);
         for (const schedule of this.state.list("Schedule")) await this.reconcileSchedule(schedule);
     }
 
@@ -262,6 +263,28 @@ export class KubeController {
             egress.push({ to: [{ ipBlock: { cidr: "0.0.0.0/0" } }], ports: [{ protocol: "TCP", port: 443 }] });
         }
         return egress; // empty = default-deny
+    }
+
+    /** Listener → resolve secretRef → construct the bridge; mark connected/failed. */
+    async reconcileListener(listener: HadesResource): Promise<void> {
+        const ns = namespaceOf(listener);
+        const name = nameOf(listener);
+        const platform = listener.spec?.platform ?? "cli";
+        const secretRef = listener.spec?.secretRef;
+        let credentials: Record<string, string> | undefined;
+        if (secretRef) {
+            credentials = await this.kube.getSecret(ns, secretRef);
+            if (!credentials) {
+                await this.patchStatus(listener, { phase: "waitingForSecret" });
+                await this.events.append("system", "listener.waiting", { listener: name, platform, reason: `secret ${secretRef} not found` });
+                return;
+            }
+        }
+        // The bridge is constructed lazily (bridgeForListener) by whoever drives
+        // inbound messages; the controller's job here is to confirm the secret
+        // resolves and mark the listener ready.
+        await this.patchStatus(listener, { phase: "connected", credentials: Boolean(credentials) });
+        await this.events.append("system", "listener.reconciled", { listener: name, platform, hasSecret: Boolean(credentials) });
     }
 
     /** Schedule → k8s CronJob (replaces the in-process croner in deploy mode). */

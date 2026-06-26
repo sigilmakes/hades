@@ -21,6 +21,8 @@ export interface KubeClient {
     list(namespace: string, kind: string): Promise<KubeObject[]>;
     /** Get a single object (to read its uid for ownerReferences). */
     get(namespace: string, kind: string, name: string): Promise<KubeObject | undefined>;
+    /** Read a k8s Secret's decoded stringData (for resolving Listener secretRefs). */
+    getSecret(namespace: string, name: string): Promise<Record<string, string> | undefined>;
     /** Health check. */
     healthz(): Promise<boolean>;
     /** Exec a command in a pod's container. Returns stdout/stderr + exit code. */
@@ -33,6 +35,8 @@ export interface KubeObject {
     kind: string;
     metadata: { name: string; namespace?: string; labels?: Record<string, string>; uid?: string; ownerReferences?: Array<{ apiVersion: string; kind: string; name: string; uid?: string; blockOwnerDeletion?: boolean; controller?: boolean }> };
     spec?: Record<string, any>;
+    /** A k8s Secret's decoded stringData. */
+    data?: Record<string, string>;
     /** Wire format role/selector strings, etc. kept as opaque for the client. */
 }
 
