@@ -18,7 +18,7 @@ async function fixture() {
     const kube = new FakeKubeClient();
     const state = new SqliteStateStore(dir);
     const events = new SqliteEventStore(dir);
-    const dist = await createDistributedRuntime(dir, { kubeClient: kube, stateStore: state, eventStore: events }).init();
+    const dist = await (await createDistributedRuntime(dir, { kubeClient: kube, stateStore: state, eventStore: events })).init();
     await dist.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
     await dist.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: `${AGENT}-default`, desiredState: "active", brain: { mode: "test" } } });
     return { dir, dist, kube, state, events };

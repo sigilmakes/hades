@@ -90,9 +90,9 @@ export class DistributedRuntime extends Runtime {
  * Inject `brainDriverFactory`/`handsResolver`/`stateStore`/`eventStore` to
  * replace the defaults as phases land.
  */
-export function createDistributedRuntime(dataDir: string, options: DistributedRuntimeOptions = {}): DistributedRuntime {
-    const state = options.stateStore ?? new SqliteStateStore(dataDir);
-    const events = options.eventStore ?? new SqliteEventStore(dataDir);
+export async function createDistributedRuntime(dataDir: string, options: DistributedRuntimeOptions = {}): Promise<DistributedRuntime> {
+    const state = options.stateStore ?? (await loadSqliteStateStore(dataDir));
+    const events = options.eventStore ?? (await loadSqliteEventStore(dataDir));
     const agents = new AgentService(dataDir, state, events);
     const policy = new PolicyService(state);
     const schedules = new ScheduleService(state, events, policy);
@@ -152,3 +152,15 @@ export type DistributedRuntimeOptions = {
     handsResolver?: HandsResolver;
     kubeClient?: KubeClient;
 };
+
+/** Lazy-load the sqlite state store so `node:sqlite` isn't pulled into processes that don't use it (e.g. brain-pod tests). */
+async function loadSqliteStateStore(dataDir: string): Promise<StateStorePort> {
+    const { SqliteStateStore } = await import("../adapters/store/SqliteStateStore.js");
+    return new SqliteStateStore(dataDir);
+}
+
+/** Lazy-load the sqlite event store so `node:sqlite` isn't pulled into processes that don't use it. */
+async function loadSqliteEventStore(dataDir: string): Promise<EventStorePort> {
+    const { SqliteEventStore } = await import("../adapters/store/SqliteEventStore.js");
+    return new SqliteEventStore(dataDir);
+}

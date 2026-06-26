@@ -29,7 +29,7 @@ test("local runtime reports local mode", async () => {
 
 test("distributed runtime reports distributed mode and reuses the kernel services", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-mode-"));
-    const dist = await createDistributedRuntime(dir).init();
+    const dist = await (await createDistributedRuntime(dir)).init();
     assert.equal(dist.mode, "distributed");
     // Kernel services exist and are the same shape as local mode.
     assert.ok(dist.agents);
@@ -42,7 +42,7 @@ test("distributed runtime reports distributed mode and reuses the kernel service
 
 test("distributed runtime runs the same kernel loop against the shared stores", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-mode-"));
-    const dist = await createDistributedRuntime(dir).init();
+    const dist = await (await createDistributedRuntime(dir)).init();
     await dist.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
     await dist.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "test" } } });
     await dist.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "self" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["createOwnSchedule"], constraints: { namespace: "own" } } });
@@ -56,7 +56,7 @@ test("distributed runtime runs the same kernel loop against the shared stores", 
 
 test("distributed runtime spawn delegates to dev-mode semantics in P0", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-mode-"));
-    const dist = await createDistributedRuntime(dir).init();
+    const dist = await (await createDistributedRuntime(dir)).init();
     await dist.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
     await dist.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "test" } } });
     await dist.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "spawn-grant" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["spawnAgent"], constraints: { namespace: "own" } } });
@@ -112,13 +112,13 @@ function mkdtempSync() {
 
 test("distributed runtime uses durable sqlite stores that survive a controller restart", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "hades-durable-"));
-    const dist1 = await createDistributedRuntime(dir).init();
+    const dist1 = await (await createDistributedRuntime(dir)).init();
     await dist1.apply({ kind: "Home", metadata: { namespace: "mode-test", name: "raven-home" }, spec: {} });
     await dist1.apply({ kind: "Agent", metadata: { namespace: "mode-test", name: "raven" }, spec: { homeRef: "raven-home", defaultSession: "raven-default", desiredState: "active", brain: { mode: "test" } } });
     await dist1.reconcile();
     await dist1.messageAgent("mode-test/raven", "!write vault/durable.md <<<survives");
     // Simulate a controller pod restart: drop the runtime, make a new one on the same PVC.
-    const dist2 = await createDistributedRuntime(dir).init();
+    const dist2 = await (await createDistributedRuntime(dir)).init();
     assert.ok(dist2.state.get("Agent", "mode-test", "raven"), "agent survived restart");
     assert.ok(dist2.state.get("Home", "mode-test", "raven-home"), "home survived restart");
     const events = await dist2.events.list("raven-default");

@@ -66,7 +66,7 @@ Environment:
 }
 
 async function runtime(): Promise<Runtime> {
-    runtimePromise ??= (distributed ? createDistributedRuntime(dataDir).init() : createRuntime(dataDir).init());
+    runtimePromise ??= (distributed ? createDistributedRuntime(dataDir).then((rt) => rt.init()) : createRuntime(dataDir).init());
     return runtimePromise;
 }
 
