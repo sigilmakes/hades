@@ -1,0 +1,43 @@
+# A persistent agent that runs on a schedule (no external listener).
+# Apply with: hades new cron-worker nightly --set prompt="Summarize the day's events"
+apiVersion: hades.dev/v1alpha1
+kind: Home
+metadata:
+  name: {{name}}-home
+  namespace: {{namespace}}
+spec: {}
+---
+apiVersion: hades.dev/v1alpha1
+kind: Agent
+metadata:
+  name: {{name}}
+  namespace: {{namespace}}
+spec:
+  homeRef: {{name}}-home
+  defaultSession: {{name}}-default
+  desiredState: active
+  lifecycle: resident
+  brain:
+    mode: pi-sdk
+---
+apiVersion: hades.dev/v1alpha1
+kind: Schedule
+metadata:
+  name: {{name}}-tick
+  namespace: {{namespace}}
+spec:
+  agentRef: {{name}}
+  type: cron
+  schedule: "0 9 * * *"
+  session: {{name}}-default
+  prompt: {{prompt}}
+---
+apiVersion: hades.dev/v1alpha1
+kind: CapabilityGrant
+metadata:
+  name: {{name}}-self
+  namespace: {{namespace}}
+spec:
+  subject: { kind: Agent, name: {{name}} }
+  capabilities: [createOwnSchedule, requestApproval, emitArtifact]
+  constraints: { namespace: own }

@@ -1,5 +1,16 @@
-# Hades control plane — the API server + controller.
-# Runs `hades serve` / `hades controller` against a live cluster.
+# Hades control plane — the API server + controller, serving the web UI.
+# Multi-stage: build the UI (Vite/React) then the API (tsc), ship one image.
+# Runs `hades controller` against a live cluster; the API serves the UI at /.
+
+# --- stage 1: build the web UI (ui/dist) ---
+FROM node:24-slim AS ui-builder
+WORKDIR /app
+COPY ui/package.json ui/package-lock.json* ./ui/
+RUN cd ui && npm ci
+COPY ui ./ui
+RUN cd ui && npm run build
+
+# --- stage 2: build the API (dist/) + ship ---
 FROM node:24-slim
 
 RUN apt-get update -qq && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
@@ -16,5 +27,8 @@ COPY examples ./examples
 
 RUN npm run build
 
-ENV NODE_ENV=development
+# Copy the built UI so the API serves it at /.
+COPY --from=ui-builder /app/ui/dist ./ui/dist
+
+ENV NODE_ENV=production
 CMD ["node", "dist/cli.js", "controller"]

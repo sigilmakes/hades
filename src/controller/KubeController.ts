@@ -3,7 +3,7 @@ import { HADES_FINALIZER, type KubeClient } from "../ports/KubeClient.js";
 import type { StateStorePort } from "../ports/StateStore.js";
 import type { EventStorePort } from "../ports/EventStore.js";
 import {
-    buildHands, buildHomePvc, buildBrain, buildSchedule, buildHadesCrd, egressForAgent, toCronExpression,
+    buildHands, buildHomePvc, buildBrain, buildSchedule, buildHadesCrd, buildConnectorNetworkPolicy, buildHandsImageJob, buildSkillService, egressForAgent, toCronExpression,
     type OwnerRef,
 } from "./builders.js";
 
@@ -39,9 +39,13 @@ export class KubeController {
         await this.ensureHadesResources();
         for (const home of this.state.list("Home")) await this.reconcileHome(home);
         for (const agent of this.state.list("Agent")) await this.reconcileAgent(agent);
+        // Hands images are built before hands pods so the tag resolves this pass.
+        for (const image of this.state.list("HandsImage")) await this.reconcileHandsImage(image);
+        for (const skill of this.state.list("Skill")) await this.reconcileSkill(skill);
         for (const hands of this.state.list("Hands")) await this.reconcileHands(hands);
         for (const listener of this.state.list("Listener")) await this.reconcileListener(listener);
         for (const schedule of this.state.list("Schedule")) await this.reconcileSchedule(schedule);
+        for (const connector of this.state.list("Connector")) await this.reconcileConnector(connector);
     }
 
     /**
@@ -176,7 +180,10 @@ export class KubeController {
         }
 
         const ownerRefs = await this.ownerRefs(agent);
-        const { deployment, service } = buildBrain(agent, ownerRefs);
+        // Discover the agent's connectors so the brain pod receives its allowed
+        // HTTP endpoints as env (the kernel routes; the brain calls).
+        const connectors = this.state.list("Connector", ns).filter((c) => c.spec?.agentRef === nameOf(agent));
+        const { deployment, service } = buildBrain(agent, ownerRefs, connectors);
         await this.kube.ensure(ns, deployment);
         await this.kube.ensure(ns, service);
         await this.events.append("system", "agent.reconciled", { agent: name, namespace: ns, brain: `brain-${name}` });
@@ -197,7 +204,12 @@ export class KubeController {
 
         const ownerRefs = await this.ownerRefs(hands);
         const egress = egressForAgent(this.state.list("CapabilityGrant", ns), agentName);
-        const { deployment, networkPolicy } = buildHands(hands, agent, ownerRefs, egress);
+        // Resolve a referenced HandsImage tag if declared on the Hands or its
+        // agent, so the hands pod runs the agent's own (nix-built) image.
+        const imageRef = hands.spec?.handsImageRef ?? agent?.spec?.handsImageRef;
+        const handsImage = imageRef ? this.state.findByName("HandsImage", imageRef, ns) : undefined;
+        const resolvedImage = handsImage?.status?.tag;
+        const { deployment, networkPolicy } = buildHands(hands, agent, ownerRefs, egress, resolvedImage);
         await this.kube.ensure(ns, deployment);
         await this.kube.ensure(ns, networkPolicy);
         await this.events.append("system", "hands.reconciled", { hands: name, namespace: ns, deployment: `hands-${agentName}` });
@@ -224,6 +236,70 @@ export class KubeController {
         // resolves and mark the listener ready.
         await this.patchStatus(listener, { phase: "connected", credentials: Boolean(credentials) });
         await this.events.append("system", "listener.reconciled", { listener: name, platform, hasSecret: Boolean(credentials) });
+    }
+
+    /**
+     * Connector → egress NetworkPolicy (governance) + brain-env discovery.
+     *
+     * The kernel does not interpret the endpoint body — it only permits the
+     * route (NetworkPolicy to the endpoint host:443) and writes status. The
+     * brain learns the endpoint via env (handled at pod-apply time from the
+     * agent's connector list); here we ensure the network grant exists.
+     */
+    async reconcileConnector(connector: HadesResource): Promise<void> {
+        const ns = namespaceOf(connector);
+        const name = nameOf(connector);
+        if (await this.isDeleting(ns, "Connector", name)) return;
+        const ownerRef = await this.ownerRefOf(connector);
+        const policy = buildConnectorNetworkPolicy(connector, ownerRef ? [ownerRef] : undefined);
+        let reachable = false;
+        if (policy) {
+            await this.kube.ensure(ns, policy);
+            reachable = true;
+        }
+        await this.patchStatus(connector, { phase: "ready", reachable });
+        await this.events.append("system", "connector.reconciled", { connector: name, agent: String(connector.spec?.agentRef ?? ""), egress: connector.spec?.egress ?? "none", reachable });
+    }
+
+    /**
+     * HandsImage → a build `Job` that materializes the agent's package
+     * declaration into a hands image tag. The kernel schedules the build
+     * (idempotent per package digest); the builder image (userland) does the
+     * nix work. On completion the controller writes the tag to status so
+     * Hands pods referencing it roll forward. The agent owns its packages
+     * without touching the host.
+     */
+    async reconcileHandsImage(image: HadesResource): Promise<void> {
+        const ns = namespaceOf(image);
+        const name = nameOf(image);
+        if (await this.isDeleting(ns, "HandsImage", name)) return;
+        const ownerRef = await this.ownerRefOf(image);
+        const job = buildHandsImageJob(image, ownerRef ? [ownerRef] : undefined);
+        // Idempotent: only create the build Job if it doesn't already exist.
+        const existing = await this.kube.get(ns, "Job", job.metadata.name);
+        if (!existing) {
+            await this.kube.ensure(ns, job);
+            await this.events.append("system", "handsimage.building", { image: name, packages: image.spec?.packages ?? [] });
+        }
+        const phase = existing?.status?.succeeded ? "built" : "building";
+        await this.patchStatus(image, { phase, tag: `hands-${name}:${String(job.metadata.name).split("-").pop()}` });
+    }
+
+    /**
+     * Skill → a `Service` exposing the agent's published HTTP capability.
+     * Symmetric with a Connector: the agent *exposes* an endpoint other agents
+     * call. The kernel wires the Service to the brain pod; the handler is
+     * userland (the agent implements the route). Status carries the cluster URL.
+     */
+    async reconcileSkill(skill: HadesResource): Promise<void> {
+        const ns = namespaceOf(skill);
+        const name = nameOf(skill);
+        if (await this.isDeleting(ns, "Skill", name)) return;
+        const ownerRef = await this.ownerRefOf(skill);
+        const svc = buildSkillService(skill, ownerRef ? [ownerRef] : undefined);
+        await this.kube.ensure(ns, svc);
+        await this.patchStatus(skill, { phase: "exposed", endpoint: `http://skill-${name}.${ns}.svc.cluster.local:${svc.spec.ports[0].port}` });
+        await this.events.append("system", "skill.exposed", { skill: name, agent: String(skill.spec?.agentRef ?? ""), endpoint: svc.spec.ports[0].port });
     }
 
     /** Schedule → k8s CronJob (replaces the in-process croner in deploy mode). */
@@ -263,6 +339,6 @@ export class KubeController {
     }
 }
 
-const HADES_KINDS = ["Agent", "Home", "Hands", "Session", "BrainBinding", "Listener", "Schedule", "Run", "Approval", "CapabilityGrant", "AgentClass"] as const;
+const HADES_KINDS = ["Agent", "Home", "Hands", "Session", "BrainBinding", "Listener", "Schedule", "Run", "Approval", "CapabilityGrant", "AgentClass", "Connector", "NamespaceQuota", "HandsImage", "Skill"] as const;
 
 export { toCronExpression };

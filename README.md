@@ -38,6 +38,20 @@ Day-to-day from a checkout:
 ./bin/hades serve                 # HTTP API
 ```
 
+The API also serves a web UI (React + Tailwind) at `/`. Build it once:
+
+```bash
+cd ui && npm install && npm run build && cd ..   # build the SPA into ui/dist
+./bin/hades serve                                # API + UI at http://localhost:7347
+```
+
+Or develop the UI hot-reloading against a live API:
+
+```bash
+./bin/hades serve &       # API on :7347
+cd ui && npm run dev      # Vite on :5173 (proxies /hades -> :7347)
+```
+
 `./bin/hades` builds `dist/` if needed. State lives under `HADES_DATA_DIR`
 (default `./.hades`).
 

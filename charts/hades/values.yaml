@@ -1,0 +1,32 @@
+# Hades — a Kubernetes-native agent OS.
+# Default values; override per-environment.
+image:
+  repository: hades-api
+  tag: latest
+  pullPolicy: Never  # kind/local; set IfNotPresent for a real registry
+
+# The control plane (API + controller) runs as one Deployment.
+api:
+  replicas: 1
+  port: 7347
+  # Data PVC for durable SQLite state. Single-node dev by default; for
+  # multi-node swap the storageClassName to a shared one (longhorn/nfs/cephfs).
+  storage:
+    size: 1Gi
+    # storageClassName: longhorn
+
+# The CRDs define the Hades resource kinds (Agent, Home, Hands, ...).
+# Installed once per cluster.
+crds:
+  keep: true  # don't delete CRDs on helm uninstall (preserves agent state)
+
+# The brain + hands images the controller provisions per agent. Defaults
+# match the local dev images; override for a registry.
+brainImage:
+  repository: hades-brain
+  tag: latest
+  pullPolicy: Never
+handsImage:
+  repository: node
+  tag: 24-slim
+  pullPolicy: IfNotPresent

@@ -1,0 +1,83 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hades-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hades.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- with .Values.api.storage.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.api.storage.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: {{ .Release.Namespace }}
+  name: hades-api
+  labels:
+    {{- include "hades.labels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      app: hades-api
+  template:
+    metadata:
+      labels:
+        app: hades-api
+        role: control-plane
+    spec:
+      serviceAccountName: hades-controller
+      containers:
+        - name: hades-api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["node", "dist/cli.js", "controller"]
+          ports:
+            - containerPort: {{ .Values.api.port }}
+              name: http
+          env:
+            - name: HADES_DATA_DIR
+              value: /var/lib/hades
+            - name: HADES_KUBE
+              value: "1"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/hades
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: hades-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: {{ .Release.Namespace }}
+  name: hades-api
+  labels:
+    {{- include "hades.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: hades-api
+  ports:
+    - port: {{ .Values.api.port }}
+      targetPort: http
+      name: http
