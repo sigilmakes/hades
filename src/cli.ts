@@ -139,6 +139,10 @@ async function controller(args: string[]): Promise<void> {
     setInterval(() => {
         rt.reconcile().catch((error) => console.error(`reconcile failed: ${error instanceof Error ? error.message : error}`));
     }, intervalMs);
+    // The control plane also serves the API on PORT (default 7347).
+    const port = Number(process.env.PORT ?? 7347);
+    const server = createServer(rt);
+    server.listen(port, () => console.log(`hades-api listening on :${port}, data=${dataDir}`));
 }
 
 async function demo(): Promise<void> {

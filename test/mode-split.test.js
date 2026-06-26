@@ -56,7 +56,7 @@ test("injecting a kube client runs the controller on reconcile", async () => {
     await rt.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "test" } } });
     await rt.reconcile();
     // The controller reconciled the agent into a brain Deployment.
-    assert.ok(kube.get(NS, "Deployment", `brain-${AGENT}`));
+    assert.ok(await kube.get(NS, "Deployment", `brain-${AGENT}`));
 });
 
 test("the kernel loop runs the same against injected stores", async () => {

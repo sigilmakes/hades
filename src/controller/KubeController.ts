@@ -32,10 +32,45 @@ export class KubeController {
     ) {}
 
     async reconcile(): Promise<void> {
+        // Ensure Hades resources exist as CRDs first, so native objects can
+        // reference them via ownerReferences (k8s requires a uid).
+        await this.ensureHadesResources();
         for (const home of this.state.list("Home")) await this.reconcileHome(home);
         for (const agent of this.state.list("Agent")) await this.reconcileAgent(agent);
         for (const hands of this.state.list("Hands")) await this.reconcileHands(hands);
         for (const schedule of this.state.list("Schedule")) await this.reconcileSchedule(schedule);
+    }
+
+    /**
+     * Apply every Hades resource in the state store as a CRD. The controller is
+     * the source of truth for desired state; native objects reference these by
+     * uid, so they must exist in the cluster before reconciliation.
+     */
+    private async ensureHadesResources(): Promise<void> {
+        for (const kind of ["Agent", "Home", "Hands", "Session", "BrainBinding", "Listener", "Schedule", "Run", "Approval", "CapabilityGrant", "AgentClass"] as const) {
+            for (const resource of this.state.list(kind)) {
+                const ns = namespaceOf(resource);
+                const name = nameOf(resource);
+                const existing = await this.kube.get(ns, kind, name);
+                if (existing?.metadata?.uid) continue;
+                await this.kube.ensure(ns, { apiVersion: "hades.dev/v1alpha1", kind, metadata: { name, namespace: ns, labels: hadesLabels(resource) }, spec: resource.spec ?? {} });
+            }
+        }
+    }
+
+    /**
+     * Build an ownerReference for a Hades resource, resolving its cluster uid.
+     * k8s rejects ownerReferences with an empty uid, so the owner must exist as
+     * a CRD first. If the uid can't be resolved (CRD not yet applied), returns
+     * undefined so the object is created without ownership (GC is a follow-on).
+     */
+    private async ownerRefOf(resource: HadesResource): Promise<{ apiVersion: string; kind: string; name: string; uid: string; blockOwnerDeletion: boolean; controller: boolean } | undefined> {
+        const ns = namespaceOf(resource);
+        const name = nameOf(resource);
+        const existing = await this.kube.get(ns, resource.kind, name);
+        const uid = existing?.metadata?.uid;
+        if (!uid) return undefined;
+        return { apiVersion: "hades.dev/v1alpha1", kind: resource.kind, name, uid, blockOwnerDeletion: true, controller: true };
     }
 
     /** Home → PVC (StorageClass left to the cluster default). */
@@ -84,7 +119,8 @@ export class KubeController {
             return;
         }
 
-        const ownerRef = { apiVersion: "hades.dev/v1alpha1", kind: "Agent", name, blockOwnerDeletion: true, controller: true };
+        const ownerRef = await this.ownerRefOf(agent);
+        const ownerRefs = ownerRef ? [ownerRef] : undefined;
         const secretRef = agent.spec?.brain?.secretRef;
         const brainEnv = [
             { name: "HADES_SESSION_ID", value: agent.spec?.defaultSession ?? `${name}-default` },
@@ -96,7 +132,7 @@ export class KubeController {
         const brain: KubeObject = {
             apiVersion: "apps/v1",
             kind: "Deployment",
-            metadata: { name: `brain-${name}`, namespace: ns, labels: hadesLabels(agent), ownerReferences: [ownerRef] },
+            metadata: { name: `brain-${name}`, namespace: ns, labels: hadesLabels(agent), ownerReferences: ownerRefs },
             spec: {
                 replicas: 1,
                 selector: { matchLabels: { "hades.dev/agent": name } },
@@ -121,7 +157,7 @@ export class KubeController {
         const brainSvc: KubeObject = {
             apiVersion: "v1",
             kind: "Service",
-            metadata: { name: `brain-${name}`, namespace: ns, labels: hadesLabels(agent), ownerReferences: [ownerRef] },
+            metadata: { name: `brain-${name}`, namespace: ns, labels: hadesLabels(agent), ownerReferences: ownerRefs },
             spec: { selector: { "hades.dev/agent": name }, ports: [{ port: 80, targetPort: 7349 }] },
         };
         await this.kube.ensure(ns, brain);
@@ -144,11 +180,12 @@ export class KubeController {
         // then the convention. The PVC is named home-<homeName>.
         const homeName = hands.spec?.homeRef ?? agent?.spec?.homeRef ?? `${agentName}-home`;
         const homeClaim = `home-${homeName}`;
-        const ownerRef = { apiVersion: "hades.dev/v1alpha1", kind: "Hands", name, blockOwnerDeletion: true, controller: true };
+        const ownerRef = await this.ownerRefOf(hands);
+        const ownerRefs = ownerRef ? [ownerRef] : undefined;
         const handsDep: KubeObject = {
             apiVersion: "apps/v1",
             kind: "Deployment",
-            metadata: { name: `hands-${agentName}`, namespace: ns, labels: hadesLabels(hands), ownerReferences: [ownerRef] },
+            metadata: { name: `hands-${agentName}`, namespace: ns, labels: hadesLabels(hands), ownerReferences: ownerRefs },
             spec: {
                 replicas: 1,
                 selector: { matchLabels: { "hades.dev/agent": agentName, "hades.dev/role": "hands" } },
@@ -160,7 +197,7 @@ export class KubeController {
                         containers: [{
                             name: "hands",
                             image: hands.spec?.image ?? "node:24-slim",
-                            imagePullPolicy: "Never",
+                            imagePullPolicy: "IfNotPresent",
                             // The hands pod is a thin sandbox: sleep infinity. The brain
                             // execs read/write/exec into it via the k8s API. No server, no port.
                             command: ["sleep", "infinity"],
@@ -179,7 +216,7 @@ export class KubeController {
         const handsNetPol: KubeObject = {
             apiVersion: "networking.k8s.io/v1",
             kind: "NetworkPolicy",
-            metadata: { name: `hands-${agentName}-netpol`, namespace: ns, labels: hadesLabels(hands), ownerReferences: [ownerRef] },
+            metadata: { name: `hands-${agentName}-netpol`, namespace: ns, labels: hadesLabels(hands), ownerReferences: ownerRefs },
             spec: {
                 podSelector: { matchLabels: { "hades.dev/agent": agentName, "hades.dev/role": "hands" } },
                 policyTypes: ["Ingress", "Egress"],
@@ -210,12 +247,13 @@ export class KubeController {
             return;
         }
         const cronExpr = toCronExpression(schedule.spec);
-        const ownerRef = { apiVersion: "hades.dev/v1alpha1", kind: "Schedule", name, blockOwnerDeletion: true, controller: true };
+        const ownerRef = await this.ownerRefOf(schedule);
+        const ownerRefs = ownerRef ? [ownerRef] : undefined;
         const agentName = schedule.spec?.agentRef ?? "";
         const cronJob: KubeObject = {
             apiVersion: "batch/v1",
             kind: "CronJob",
-            metadata: { name: `sched-${name}`, namespace: ns, labels: hadesLabels(schedule), ownerReferences: [ownerRef] },
+            metadata: { name: `sched-${name}`, namespace: ns, labels: hadesLabels(schedule), ownerReferences: ownerRefs },
             spec: {
                 schedule: cronExpr,
                 jobTemplate: {

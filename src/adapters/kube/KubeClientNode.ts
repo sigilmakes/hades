@@ -40,14 +40,16 @@ export class KubeClientNode implements KubeClient {
         const body = { ...object, metadata: { ...object.metadata, namespace } };
 
         try {
-            // Try create; if it exists (409), patch.
+            // Create if absent. The controller is level-triggered: if the object
+            // already exists we accept it as-is (create-if-absent). Correcting
+            // spec drift via strategic-merge patch is a follow-on — the v1.x
+            // client's patch content-type handling is awkward, and overwriting
+            // immutable fields (bound PVC spec, server-assigned ownerRef uids)
+            // is rejected anyway.
             await this.createByKind(namespace, group, version, kind, body);
             return name;
         } catch (error: any) {
-            if (error?.statusCode === 409 || error?.code === 409) {
-                await this.replaceByKind(namespace, group, version, kind, name, body);
-                return name;
-            }
+            if (error?.statusCode === 409 || error?.code === 409) return name; // exists
             throw error;
         }
     }
@@ -63,10 +65,17 @@ export class KubeClientNode implements KubeClient {
     }
 
     async list(namespace: string, kind: string): Promise<KubeObject[]> {
-        // Generic list across the kinds the controller creates. For simplicity,
-        // lists one kind at a time; the controller uses this for idempotency checks.
         const result = await this.listByKind(namespace, kind);
         return (result?.items ?? []) as KubeObject[];
+    }
+
+    async get(namespace: string, kind: string, name: string): Promise<KubeObject | undefined> {
+        try {
+            return await this.getByKind(namespace, kind, name);
+        } catch (error: any) {
+            if (error?.statusCode === 404 || error?.code === 404) return undefined;
+            throw error;
+        }
     }
 
     async healthz(): Promise<boolean> {
@@ -109,16 +118,6 @@ export class KubeClientNode implements KubeClient {
         await this.customObjects.createNamespacedCustomObject({ group, version, namespace: ns, plural, body });
     }
 
-    private async replaceByKind(ns: string, group: string, version: string, kind: string, name: string, body: any): Promise<void> {
-        if (kind === "Deployment") return void (await this.apps.replaceNamespacedDeployment({ name, namespace: ns, body }));
-        if (kind === "Service") return void (await this.core.replaceNamespacedService({ name, namespace: ns, body }));
-        if (kind === "PersistentVolumeClaim") return void (await this.core.replaceNamespacedPersistentVolumeClaim({ name, namespace: ns, body }));
-        if (kind === "CronJob") return void (await this.batch.replaceNamespacedCronJob({ name, namespace: ns, body }));
-        if (kind === "NetworkPolicy") return void (await this.networking.replaceNamespacedNetworkPolicy({ name, namespace: ns, body }));
-        const plural = pluralize(kind);
-        await this.customObjects.replaceNamespacedCustomObject({ group, version, namespace: ns, plural, name, body });
-    }
-
     private async deleteByKind(ns: string, kind: string, name: string): Promise<void> {
         if (kind === "Deployment") return void (await this.apps.deleteNamespacedDeployment({ name, namespace: ns }));
         if (kind === "Service") return void (await this.core.deleteNamespacedService({ name, namespace: ns }));
@@ -139,10 +138,39 @@ export class KubeClientNode implements KubeClient {
         if (kind === "NetworkPolicy") return await this.networking.listNamespacedNetworkPolicy({ namespace: ns });
         return { items: [] };
     }
+
+    private async getByKind(ns: string, kind: string, name: string): Promise<KubeObject> {
+        if (kind === "Deployment") return await this.apps.readNamespacedDeployment({ name, namespace: ns }) as unknown as KubeObject;
+        if (kind === "Service") return await this.core.readNamespacedService({ name, namespace: ns }) as unknown as KubeObject;
+        if (kind === "PersistentVolumeClaim") return await this.core.readNamespacedPersistentVolumeClaim({ name, namespace: ns }) as unknown as KubeObject;
+        if (kind === "CronJob") return await this.batch.readNamespacedCronJob({ name, namespace: ns }) as unknown as KubeObject;
+        if (kind === "NetworkPolicy") return await this.networking.readNamespacedNetworkPolicy({ name, namespace: ns }) as unknown as KubeObject;
+        // Hades CRDs (Agent/Home/Hands/Schedule/...) — read via custom objects.
+        const plural = pluralize(kind);
+        const resp = await this.customObjects.getNamespacedCustomObject({ group: "hades.dev", version: "v1alpha1", namespace: ns, plural, name });
+        return resp as unknown as KubeObject;
+    }
 }
+
+/** Plural for a Hades kind — must match the CRD `names.plural`. */
+const HADES_PLURALS: Record<string, string> = {
+    agent: "agents",
+    agentclass: "agentclasses",
+    home: "homes",
+    session: "sessions",
+    brainbinding: "brainbindings",
+    hands: "hands",
+    listener: "listeners",
+    schedule: "schedules",
+    run: "runs",
+    approval: "approvals",
+    capabilitygrant: "capabilitygrants",
+};
 
 function pluralize(kind: string): string {
     const lower = kind.toLowerCase();
+    if (HADES_PLURALS[lower]) return HADES_PLURALS[lower];
+    // Native k8s kinds are not pluralized here (handled by typed APIs).
     if (lower.endsWith("s")) return `${lower}es`;
     if (lower.endsWith("y")) return `${lower.slice(0, -1)}ies`;
     return `${lower}s`;

@@ -11,6 +11,7 @@ RUN npm ci
 
 COPY src ./src
 COPY bin ./bin
+COPY scripts ./scripts
 COPY examples ./examples
 
 RUN npm run build

@@ -36,17 +36,25 @@ export class FakeKubeClient implements KubeClient {
         return true;
     }
 
+    async get(namespace: string, kind: string, name: string): Promise<KubeObject | undefined> {
+        const existing = this.objects.get(this.key(namespace, kind, name));
+        if (existing) return existing;
+        // Hades CRDs (Agent/Home/Hands/Schedule/...) are the owners of native
+        // objects. In a real cluster they exist as CRDs with server-assigned
+        // uids. The fake synthesizes a uid so ownerReferences resolve in tests.
+        const hadesKinds = new Set(["Agent", "Home", "Hands", "Session", "BrainBinding", "Listener", "Schedule", "Run", "Approval", "CapabilityGrant", "AgentClass"]);
+        if (hadesKinds.has(kind)) {
+            return { apiVersion: "hades.dev/v1alpha1", kind, metadata: { name, namespace, uid: `fake-${kind}-${name}` } };
+        }
+        return undefined;
+    }
+
     async exec(_namespace: string, _pod: string, _container: string, command: string[], _stdin?: string): Promise<ExecResult> {
         // The fake client cannot exec into a real pod. Tests that need exec
         // behavior inject a custom KubeClient or assert via the controller's
         // ensured objects rather than execution results.
         void command;
         throw new Error("FakeKubeClient cannot exec into pods; inject a custom KubeClient for exec tests");
-    }
-
-    /** Get a single object (test helper). */
-    get(namespace: string, kind: string, name: string): KubeObject | undefined {
-        return this.objects.get(this.key(namespace, kind, name));
     }
 
     private key(namespace: string, kind: string, name: string): string {

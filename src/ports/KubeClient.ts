@@ -19,6 +19,8 @@ export interface KubeClient {
     delete(namespace: string, kind: string, name: string): Promise<boolean>;
     /** List objects of a kind in a namespace. */
     list(namespace: string, kind: string): Promise<KubeObject[]>;
+    /** Get a single object (to read its uid for ownerReferences). */
+    get(namespace: string, kind: string, name: string): Promise<KubeObject | undefined>;
     /** Health check. */
     healthz(): Promise<boolean>;
     /** Exec a command in a pod's container. Returns stdout/stderr + exit code. */
@@ -29,7 +31,7 @@ export interface KubeClient {
 export interface KubeObject {
     apiVersion: string;
     kind: string;
-    metadata: { name: string; namespace?: string; labels?: Record<string, string>; ownerReferences?: Array<{ apiVersion: string; kind: string; name: string; uid?: string; blockOwnerDeletion?: boolean; controller?: boolean }> };
+    metadata: { name: string; namespace?: string; labels?: Record<string, string>; uid?: string; ownerReferences?: Array<{ apiVersion: string; kind: string; name: string; uid?: string; blockOwnerDeletion?: boolean; controller?: boolean }> };
     spec?: Record<string, any>;
     /** Wire format role/selector strings, etc. kept as opaque for the client. */
 }

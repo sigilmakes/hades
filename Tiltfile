@@ -19,6 +19,7 @@ docker_build(
         'tsconfig.json',
         'src',
         'bin',
+        'scripts',
         'examples',
         'infra/docker/Dockerfile.api',
     ],
@@ -26,40 +27,24 @@ docker_build(
         fall_back_on(['./package.json', './package-lock.json', './tsconfig.json']),
         sync('./src', '/app/src'),
         sync('./bin', '/app/bin'),
+        sync('./scripts', '/app/scripts'),
+        # Rebuild dist/ on src change so the running pod picks up code edits.
+        run('npm run build', trigger='./src/**'),
     ],
 )
 
 # ── Brain image ──
 # Not deployed as a static k8s resource — the controller creates brain pods
-# dynamically per agent. Build it and load into kind so the controller can
-# reference the image.
-docker_build(
-    'hades-brain',
-    '.',
-    dockerfile='infra/docker/Dockerfile.brain',
-    only=[
-        'package.json',
-        'package-lock.json',
-        'tsconfig.json',
-        'src',
-        'infra/docker/Dockerfile.brain',
-    ],
-    live_update=[
-        fall_back_on(['./package.json', './package-lock.json', './tsconfig.json']),
-        sync('./src', '/app/src'),
-    ],
-)
+# dynamically per agent. Built + loaded into kind by load-brain-image below
+# (Tilt skips docker_build images not referenced by a manifest).
 
-# Hands pods use a base image (node:24-slim, sleep infinity) — no custom build
-# needed. The controller creates them per agent; the brain execs into them.
-
-# Load the brain image into kind (no k8s resource references it directly —
-# the controller creates brain pods from it).
+# Load the brain image into kind. Tilt can't auto-load images not referenced by
+# a k8s manifest, so build + load explicitly in one step (the docker_build above
+# is suppressed/unused; this local_resource is the real build+load).
 local_resource(
     'load-brain-image',
-    'kind load docker-image hades-brain:latest --name hades',
-    deps=['infra/docker/Dockerfile.brain'],
-    resource_deps=['hades-brain'],
+    'docker build -t hades-brain:latest -f infra/docker/Dockerfile.brain . && kind load docker-image hades-brain:latest --name hades',
+    deps=['infra/docker/Dockerfile.brain', 'src', 'package.json', 'package-lock.json', 'tsconfig.json', 'scripts'],
     labels=['build'],
 )
 
