@@ -25,6 +25,10 @@ import type { EventStorePort } from "../ports/EventStore.js";
  * pods disappear via k8s ownership, not a Hades GC loop.
  */
 export class KubeController {
+    private debounce: ReturnType<typeof setTimeout> | undefined;
+    private running = false;
+    private stopWatch?: () => void;
+
     constructor(
         private readonly state: StateStorePort,
         private readonly events: EventStorePort,
@@ -39,6 +43,44 @@ export class KubeController {
         for (const agent of this.state.list("Agent")) await this.reconcileAgent(agent);
         for (const hands of this.state.list("Hands")) await this.reconcileHands(hands);
         for (const schedule of this.state.list("Schedule")) await this.reconcileSchedule(schedule);
+    }
+
+    /**
+     * Start an event-driven reconcile loop. Subscribes to {@link StateStorePort}
+     * mutations and reconciles on change (debounced); the optional `resyncMs`
+     * interval is a periodic safety net that re-reconciles the whole store to
+     * correct any drift the change stream missed (e.g. external edits to the
+     * cluster). Returns a `stop()` that tears down both the watch and the
+     * resync timer.
+     */
+    start(resyncMs = 30_000): () => void {
+        if (this.stopWatch) return this.stopWatch;
+        // Event-driven: a state mutation schedules a debounced reconcile.
+        if (this.state.subscribe) {
+            this.stopWatch = this.state.subscribe(() => this.scheduleReconcile());
+        }
+        // Safety net: periodic full resync catches drift the change stream misses.
+        const timer = setInterval(() => this.scheduleReconcile(), resyncMs);
+        timer.unref?.();
+        return () => {
+            this.stopWatch?.();
+            this.stopWatch = undefined;
+            clearInterval(timer);
+            if (this.debounce) { clearTimeout(this.debounce); this.debounce = undefined; }
+        };
+    }
+
+    /** Schedule a reconcile shortly, coalescing a burst of mutations into one. */
+    private scheduleReconcile(): void {
+        if (this.running) return; // an in-flight reconcile will observe this change on its next pass
+        if (this.debounce) clearTimeout(this.debounce);
+        this.debounce = setTimeout(() => {
+            this.debounce = undefined;
+            this.running = true;
+            this.reconcile()
+                .catch((error) => console.error(`reconcile failed: ${error instanceof Error ? error.message : error}`))
+                .finally(() => { this.running = false; });
+        }, 250);
     }
 
     /**

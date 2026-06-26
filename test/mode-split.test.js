@@ -95,7 +95,7 @@ test("hades controller command boots and reports the reconcile interval", () => 
         timeout: 1500,
         env: { ...process.env, HADES_DATA_DIR: path.join(cwd, ".hades") },
     });
-    assert.match(result.stdout, /hades controller reconciling every 50ms/);
+    assert.match(result.stdout, /hades controller running \(event-driven, resync every 50ms/);
     assert.match(result.stderr, /HADES_KUBE not set/);
 });
 
