@@ -242,3 +242,23 @@ test("controller keeps hands default-deny egress when no networkEgress grant", a
     assert.ok(netpol);
     assert.equal(netpol.spec.egress.length, 0, "no network grant -> default-deny egress");
 });
+
+test("brain pod has readiness + liveness probes on /healthz", async () => {
+    const { dist, kube } = await fixture();
+    await dist.reconcile();
+    const brainDep = await kube.get(NS, "Deployment", `brain-${AGENT}`);
+    const container = brainDep.spec.template.spec.containers[0];
+    assert.ok(container.readinessProbe, "brain has a readiness probe");
+    assert.equal(container.readinessProbe.httpGet.path, "/healthz");
+    assert.ok(container.livenessProbe, "brain has a liveness probe");
+    assert.equal(container.livenessProbe.httpGet.path, "/healthz");
+});
+
+test("hands pod has an exec-based liveness probe on the home mount", async () => {
+    const { dist, kube } = await fixture();
+    await dist.reconcile();
+    const handsDep = await kube.get(NS, "Deployment", `hands-${AGENT}`);
+    const container = handsDep.spec.template.spec.containers[0];
+    assert.ok(container.livenessProbe, "hands has a liveness probe");
+    assert.deepEqual(container.livenessProbe.exec.command, ["test", "-d", "/home/agent"]);
+});

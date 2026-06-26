@@ -145,10 +145,12 @@ export class KubeController {
                             name: "brain",
                             image: agent.spec?.brain?.image ?? "hades-brain:latest",
                             imagePullPolicy: "Never",
-                            ports: [{ containerPort: 7349 }],
+                            ports: [{ containerPort: 7349, name: "http" }],
                             env: brainEnv,
                             // Model credentials are mounted as a Secret envFrom, never into hands.
                             ...(secretRef ? { envFrom: [{ secretRef: { name: secretRef } }] } : {}),
+                            readinessProbe: { httpGet: { path: "/healthz", port: 7349 }, initialDelaySeconds: 3, periodSeconds: 5 },
+                            livenessProbe: { httpGet: { path: "/healthz", port: 7349 }, initialDelaySeconds: 30, periodSeconds: 30, failureThreshold: 5 },
                         }],
                     },
                 },
@@ -203,6 +205,8 @@ export class KubeController {
                             command: ["sleep", "infinity"],
                             env: [{ name: "HADES_HOME_ROOT", value: "/home/agent" }],
                             volumeMounts: [{ name: "home", mountPath: "/home/agent" }],
+                            // Liveness: confirm the home mount is present (exec-based, no server).
+                            livenessProbe: { exec: { command: ["test", "-d", "/home/agent"] }, initialDelaySeconds: 5, periodSeconds: 30 },
                         }],
                         volumes: [{ name: "home", persistentVolumeClaim: { claimName: homeClaim } }],
                     },
