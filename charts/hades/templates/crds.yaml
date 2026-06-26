@@ -520,6 +520,10 @@ spec:
                 path: { type: string }
                 # A human description of what this skill does.
                 description: { type: string }
+                # The userland image that implements this skill (catalog install).
+                image: { type: string }
+                # The catalog entry name this skill was installed from (if any).
+                catalog: { type: string }
             status:
               type: object
               properties:

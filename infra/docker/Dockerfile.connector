@@ -1,0 +1,22 @@
+# Hades connector shim — the canonical userland HTTP endpoint.
+#
+# A Connector is the kernel's HTTP capability boundary: the kernel governs the
+# route (NetworkPolicy) and injects discovery (brain env), but the endpoint
+# itself is *userland* — a deployed image the brain calls. This image is the
+# default "device driver": a tiny HTTP proxy that turns a Connector declaration
+# into a running endpoint. Swappable; the kernel never interprets its body.
+#
+# Build: docker build -t hades-connector:latest -f infra/docker/Dockerfile.connector .
+# Run env: HADES_CONNECTOR_TARGET (upstream URL), HADES_CONNECTOR_AUTH (header
+# value, e.g. "Bearer <token>" — typically from a Secret envFrom).
+
+FROM node:24-slim
+WORKDIR /app
+
+# The shim is dependency-free (uses the built-in http module), so there's no
+# npm install step — it stays a few KB.
+COPY examples/connector-shim/server.mjs ./server.mjs
+
+ENV NODE_ENV=production
+EXPOSE 8080
+CMD ["node", "server.mjs"]

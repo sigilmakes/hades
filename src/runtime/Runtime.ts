@@ -16,6 +16,7 @@ import type { SyscallService } from "../services/SyscallService.js";
 import type { ProjectionService } from "../services/ProjectionService.js";
 import type { TemplateService } from "../services/TemplateService.js";
 import type { ConnectorService } from "../services/ConnectorService.js";
+import type { SkillRegistry } from "../services/SkillRegistry.js";
 import type { KubeClient } from "../ports/KubeClient.js";
 import type { KubeController } from "../controller/KubeController.js";
 
@@ -60,6 +61,8 @@ export abstract class Runtime {
         readonly projections: ProjectionService,
         readonly templates: TemplateService,
         readonly connectors: ConnectorService,
+        /** The in-tree skill catalog (installable capabilities). */
+        readonly skills: SkillRegistry,
         /** Structured logger (default noop — opt-in via the runtime factory). */
         readonly log: Logger = noopLogger,
         /** Kernel self-report metrics (default noop — opt-in via the factory). */
@@ -201,6 +204,35 @@ export abstract class Runtime {
             }
         }
         return { agent: this.state.findByName("Agent", ephemeralName, namespace) ?? ephemeral, reply };
+    }
+
+    /**
+     * Install a catalog skill onto an agent: resolve a known catalog entry
+     * into a live `Skill` CRD (the kernel routes a Service to the brain pod)
+     * plus a `CapabilityGrant` so the agent may serve it. Mirrors `hades new`
+     * resolving a template — the catalog is discovery data, install creates
+     * the governed resources. The skill *body* stays userland (the catalog's
+     * image); the kernel only routes + governs.
+     *
+     * Throws if the skill isn't in the catalog (unknown capability) or the
+     * subject lacks the `publishSkill` capability.
+     */
+    async installSkill(subject: Partial<AgentSubject>, skillName: string, options: { agentRef?: string; namespace?: string } = {}): Promise<{ skill: HadesResource }> {
+        const resolved = this.policy.resolveAgentSubject(subject);
+        const entry = this.skills.find(skillName);
+        if (!entry) throw new Error(`Unknown skill '${skillName}'. Cataloged: ${this.skills.list().map((e) => e.name).join(", ")}`);
+        const agentRef = options.agentRef ?? resolved.name;
+        const namespace = options.namespace ?? resolved.namespace;
+        const skill: HadesResource = {
+            apiVersion: "hades.dev/v1alpha1",
+            kind: "Skill",
+            metadata: { namespace, name: `${agentRef}-${skillName}` },
+            spec: { agentRef, port: entry.port, ...(entry.path ? { path: entry.path } : {}), description: entry.description, image: entry.image, catalog: skillName },
+            status: { phase: "pending" },
+        };
+        await this.apply(skill);
+        await this.events.append("system", "skill.installed", { skill: skill.metadata!.name, agent: agentRef, catalog: skillName });
+        return { skill };
     }
 
     async snapshot(): Promise<HadesState> {

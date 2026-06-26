@@ -21,6 +21,10 @@ const KIND_ALIASES: Record<string, string> = {
     runs: "Run", run: "Run",
     approvals: "Approval", approval: "Approval",
     grants: "CapabilityGrant", grant: "CapabilityGrant",
+    connectors: "Connector", connector: "Connector",
+    skills: "Skill", skill: "Skill",
+    handsimages: "HandsImage", handsimage: "HandsImage",
+    namespacequotas: "NamespaceQuota", namespacequota: "NamespaceQuota",
 };
 
 const [rawCommand = "help", ...args] = process.argv.slice(2);
@@ -45,6 +49,8 @@ try {
     else if (command === "state") console.log(JSON.stringify(await (await runtime()).snapshot(), null, 4));
     else if (command === "get") await get(args);
     else if (command === "primitives") await primitives(args[0]);
+    else if (command === "skills") await skills();
+    else if (command === "install") await install(args);
     else if (command === "serve") await serve(args);
     else if (command === "controller") await controller(args);
     else if (command === "attach") await attach(args);
@@ -72,9 +78,13 @@ Commands:
   state                        print resource state
   get <kind> [name]           list resources (kubectl-style table)
                               kind: agents, homes, hands, listeners,
-                              schedules, runs, approvals, grants
+                              schedules, runs, approvals, grants,
+                              connectors, skills
   primitives [decision]        list researched AgentOS primitives
                                decision: adopt, defer, or reject
+  skills                       list installable skills (the catalog)
+  install skill <name> [opts]  install a catalog skill onto an agent
+                              (--agent <name>; default = caller)
   serve [port]                 start the Hades API server
   controller [intervalMs]      run the reconcile loop
                                (set HADES_KUBE=1 to reconcile a live cluster)
@@ -211,7 +221,7 @@ async function events(session: string | undefined): Promise<void> {
 async function get(args: string[]): Promise<void> {
     const { namespace, rest } = parseNamespace(args);
     const kindArg = rest[0];
-    if (!kindArg) throw new Error("get requires a kind: agents, homes, hands, listeners, schedules, runs, approvals, grants");
+    if (!kindArg) throw new Error("get requires a kind: agents, homes, hands, listeners, schedules, runs, approvals, grants, connectors, skills");
     const kind = KIND_ALIASES[kindArg.toLowerCase()];
     if (!kind) throw new Error(`Unknown kind ${kindArg}. Known: ${Object.keys(KIND_ALIASES).join(", ")}`);
     const name = rest[1];
@@ -275,6 +285,40 @@ async function logs(args: string[]): Promise<void> {
 async function primitives(decision: string | undefined): Promise<void> {
     const rows = new PrimitiveService().list(parsePrimitiveDecision(decision));
     console.log(JSON.stringify(rows, null, 4));
+}
+
+/** `hades skills` — list the installable skill catalog (kernel discovery data). */
+async function skills(): Promise<void> {
+    const rt = await runtime();
+    const entries = rt.skills.list();
+    if (entries.length === 0) { console.log("No skills in the catalog."); return; }
+    console.log("Installable skills (hades install skill <name>):");
+    for (const e of entries) console.log(`  ${e.name}\t${e.description}\tport=${e.port}\timage=${e.image}`);
+}
+
+/**
+ * `hades install skill <name>` — resolve a catalog skill onto an agent.
+ * The catalog is kernel discovery data; install creates the governed live
+ * resources (a Skill CRD the controller routes a Service to). Mirrors
+ * `hades new <template>`.
+ */
+async function install(args: string[]): Promise<void> {
+    const { namespace, rest } = parseNamespace(args);
+    const kind = rest[0];
+    if (kind !== "skill") throw new Error("install requires: install skill <name> [--agent <name>]");
+    const skillName = rest[1];
+    if (!skillName) throw new Error("install skill requires a name: hades install skill <name> [--agent <name>]");
+    // --agent <name> selects the target agent (default: derive from HADES_AGENT).
+    const agentFlag = args.indexOf("--agent");
+    const agentRef = agentFlag >= 0 && args[agentFlag + 1] ? args[agentFlag + 1] : process.env.HADES_AGENT;
+    if (!agentRef) throw new Error("install skill needs a target agent: set --agent <name> or HADES_AGENT");
+    const ns = namespace ?? process.env.HADES_NAMESPACE ?? "default";
+    const rt = await runtime();
+    const entry = rt.skills.find(skillName);
+    if (!entry) throw new Error(`Unknown skill '${skillName}'. Cataloged: ${rt.skills.list().map((e) => e.name).join(", ")}`);
+    const { skill } = await rt.installSkill({ kind: "Agent", name: agentRef, namespace: ns }, skillName, { agentRef, namespace: ns });
+    await rt.reconcile();
+    console.log(`installed skill ${skillName} onto ${ns}/${agentRef} → ${skill.metadata?.name} (endpoint ${skill.status?.endpoint ?? "pending"})`);
 }
 
 async function serve(args: string[]): Promise<void> {

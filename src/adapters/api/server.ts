@@ -168,6 +168,13 @@ function routes(runtime: Runtime): Route[] {
             const all = ns ? runtime.state.list("Skill", ns) : runtime.state.list("Skill");
             return agent ? all.filter((sk) => sk.spec?.agentRef === agent) : all;
         } },
+        // The installable skill catalog (kernel discovery data, like a device-driver table).
+        { method: "GET", path: "/hades/v1/skills/catalog", handler: () => ({ skills: runtime.skills.list() }) },
+        // Install a catalog skill onto an agent (governance + discovery → live resources).
+        { method: "POST", path: "/hades/v1/syscalls/install-skill", handler: async (c) => {
+            const b = c.body;
+            return runtime.installSkill(b.subject as never, String(b.skill), { agentRef: typeof b.agentRef === "string" ? b.agentRef : undefined, namespace: typeof b.namespace === "string" ? b.namespace : undefined });
+        } },
         { method: "GET", path: "/hades/v1/connectors", handler: (c) => {
             const ns = c.url.searchParams.get("namespace") ?? undefined;
             const agent = c.url.searchParams.get("agent");
