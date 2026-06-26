@@ -79,6 +79,23 @@ function routes(runtime: Runtime): Route[] {
             },
         },
         { method: "POST", path: "/hades/v1/resources", handler: (c) => runtime.apply(c.body as never) },
+        {
+            method: "DELETE", path: "/hades/v1/resources/:kind/:name", handler: async (c) => {
+                const ns = c.url.searchParams.get("namespace") ?? "default";
+                const existed = await runtime.remove(c.params.kind as never, ns, c.params.name);
+                if (!existed) throw new ClientError(`${c.params.kind} ${ns}/${c.params.name} not found`, 404);
+                return { ok: true, removed: c.params.name };
+            },
+        },
+        {
+            method: "GET", path: "/hades/v1/agents/:name/logs", handler: async (c) => {
+                if (!runtime.kubeClient) throw new ClientError("no live cluster attached (HADES_KUBE=1 required)", 503);
+                const ns = c.url.searchParams.get("namespace") ?? c.params.name;
+                const tail = c.url.searchParams.get("tail");
+                const text = await runtime.kubeClient.logs(ns, `brain-${c.params.name}`, "brain", tail ? { tail: Number(tail) } : {});
+                return { text };
+            },
+        },
         { method: "POST", path: "/hades/v1/syscalls/schedules", handler: (c) => runtime.createSchedule(c.body.subject as never, c.body.spec as never) },
         { method: "POST", path: "/hades/v1/syscalls/spawn-agent", handler: (c) => runtime.spawnAgent(c.body.subject as never, c.body.spec as never) },
         { method: "POST", path: "/hades/v1/syscalls/create-agent", handler: (c) => s.createAgent(c.body.subject as never, c.body.spec as never) },

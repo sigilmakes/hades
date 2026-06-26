@@ -84,6 +84,13 @@ export const api = {
   healthz: () => getJson<{ ok: boolean }>("/healthz"),
   // Lifecycle actions
   apply: (resource: HadesResource) => postJson<HadesResource>("/hades/v1/resources", resource),
+  remove: (kind: string, name: string, namespace = "default") =>
+    fetch(`${API_BASE}/hades/v1/resources/${kind}/${name}?namespace=${namespace}`, { method: "DELETE" }).then(async (res) => {
+      if (!res.ok) throw new Error(`${res.status} ${(await res.text()) || res.statusText}`);
+      return res.json() as Promise<{ ok: boolean; removed: string }>;
+    }),
+  logs: (name: string, namespace?: string, tail?: number) =>
+    getJson<{ text: string }>(`/hades/v1/agents/${name}/logs?${namespace ? `namespace=${namespace}&` : ""}${tail ? `tail=${tail}` : ""}`),
   message: (name: string, text: string, namespace?: string) =>
     postJson<{ run: HadesResource; reply: string }>(`/hades/v1/agents/${name}/message`, { text, namespace }),
   reconcile: () => postJson<{ ok: boolean }>("/hades/v1/reconcile", {}),

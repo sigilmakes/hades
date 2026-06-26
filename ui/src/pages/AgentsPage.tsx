@@ -34,6 +34,24 @@ export function AgentsPage() {
     },
   });
 
+  // Toggle an agent's desiredState by re-applying the resource with a new spec.
+  const setStateMutation = useMutation({
+    mutationFn: async ({ agent, state }: { agent: Agent; state: "active" | "idle" | "stopped" }) => {
+      await api.apply({ ...agent, spec: { ...agent.spec, desiredState: state } } as Agent);
+      return api.reconcile();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["agents"] }),
+  });
+
+  // Delete an agent (and its owned pods via the controller's finalizer).
+  const deleteMutation = useMutation({
+    mutationFn: (agent: Agent) => api.remove("Agent", agent.metadata.name, agent.metadata.namespace ?? "default"),
+    onSuccess: () => {
+      setSelected(null);
+      queryClient.invalidateQueries();
+    },
+  });
+
   return (
     <div className="p-6">
       <header className="mb-5 flex items-center justify-between">
@@ -61,6 +79,24 @@ export function AgentsPage() {
               <Field label="brain mode">{(selected.spec?.brain as { mode?: string })?.mode ?? "—"}</Field>
               <Field label="uid">{selected.metadata.uid ?? "—"}</Field>
             </dl>
+
+            <div className="pt-2">
+              <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Desired state</label>
+              <div className="flex gap-2">
+                {(["active", "idle", "stopped"] as const).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setStateMutation.mutate({ agent: selected, state: s })}
+                    disabled={setStateMutation.isPending || selected.spec?.desiredState === s}
+                    className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                      selected.spec?.desiredState === s
+                        ? "bg-hades-accent text-white"
+                        : "border border-hades-border text-slate-300 hover:bg-slate-800"
+                    } disabled:opacity-40`}
+                  >{s}</button>
+                ))}
+              </div>
+            </div>
 
             <div className="pt-2">
               <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Send a message</label>
@@ -94,9 +130,46 @@ export function AgentsPage() {
                 {JSON.stringify(selected.spec ?? {}, null, 2)}
               </pre>
             </details>
+
+            <AgentLogs name={selected.metadata.name} namespace={selected.metadata.namespace} />
+
+            <div className="flex justify-end border-t border-hades-border pt-4">
+              <button
+                onClick={() => deleteMutation.mutate(selected)}
+                disabled={deleteMutation.isPending}
+                className="rounded-md border border-red-500/40 px-4 py-1.5 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-40"
+              >{deleteMutation.isPending ? "Deleting…" : "Delete agent"}</button>
+            </div>
           </div>
         )}
       </Drawer>
     </div>
+  );
+}
+
+/** A collapsible brain-pod log viewer (fetches on expand, manual refresh). */
+function AgentLogs({ name, namespace }: { name: string; namespace?: string }) {
+  const [open, setOpen] = useState(false);
+  const { data, isError, error, refetch, isFetching } = useQuery({
+    queryKey: ["logs", name, namespace],
+    queryFn: () => api.logs(name, namespace, 200),
+    enabled: open,
+    refetchInterval: false,
+  });
+  return (
+    <details open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)} className="pt-2">
+      <summary className="flex cursor-pointer items-center justify-between text-xs uppercase tracking-wide text-slate-500">
+        <span>brain logs</span>
+        {open && (
+          <button
+            onClick={(e) => { e.preventDefault(); refetch(); }}
+            className="text-slate-400 hover:text-white"
+          >{isFetching ? "refreshing…" : "↻ refresh"}</button>
+        )}
+      </summary>
+      <pre className="mt-2 max-h-48 overflow-auto rounded-md bg-slate-950 p-3 text-xs text-slate-300">
+        {isError ? `error: ${(error as Error).message}` : (data?.text || "no logs (or no live cluster — HADES_KUBE=1)") }
+      </pre>
+    </details>
   );
 }

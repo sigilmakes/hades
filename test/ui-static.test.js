@@ -79,3 +79,48 @@ test("without a UI dir, unknown paths 404 (API-only mode)", async () => {
         server.close();
     }
 });
+
+test("DELETE /hades/v1/resources/:kind/:name removes a resource", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "hades-static-"));
+    const runtime = await (await createRuntime(dir)).init();
+    await runtime.apply({ kind: "Agent", metadata: { name: "deletable", namespace: "ns" }, spec: { desiredState: "active", brain: { mode: "test" } } });
+    const server = createServer(runtime);
+    await new Promise((r) => server.listen(0, r));
+    const port = server.address().port;
+    try {
+        const res = await fetch(`http://127.0.0.1:${port}/hades/v1/resources/Agent/deletable?namespace=ns`, { method: "DELETE" });
+        assert.equal(res.status, 200);
+        assert.equal((await res.json()).removed, "deletable");
+        assert.equal(runtime.state.get("Agent", "ns", "deletable"), undefined);
+    } finally {
+        server.close();
+    }
+});
+
+test("DELETE a missing resource returns 404", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "hades-static-"));
+    const runtime = await (await createRuntime(dir)).init();
+    const server = createServer(runtime);
+    await new Promise((r) => server.listen(0, r));
+    const port = server.address().port;
+    try {
+        const res = await fetch(`http://127.0.0.1:${port}/hades/v1/resources/Agent/ghost?namespace=ns`, { method: "DELETE" });
+        assert.equal(res.status, 404);
+    } finally {
+        server.close();
+    }
+});
+
+test("GET /agents/:name/logs returns 503 without a live cluster", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "hades-static-"));
+    const runtime = await (await createRuntime(dir)).init();
+    const server = createServer(runtime); // no kubeClient
+    await new Promise((r) => server.listen(0, r));
+    const port = server.address().port;
+    try {
+        const res = await fetch(`http://127.0.0.1:${port}/hades/v1/agents/atlas/logs?namespace=ns`);
+        assert.equal(res.status, 503);
+    } finally {
+        server.close();
+    }
+});
