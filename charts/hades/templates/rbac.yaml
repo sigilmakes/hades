@@ -61,7 +61,7 @@ metadata:
     {{- include "hades.labels" . | nindent 4 }}
 rules:
   - apiGroups: ["hades.dev"]
-    resources: ["agents","agentclasses","homes","sessions","brainbindings","hands","listeners","schedules","runs","approvals","capabilitygrants"]
+    resources: ["agents","agentclasses","homes","sessions","brainbindings","hands","listeners","schedules","runs","approvals","capabilitygrants","connectors","handsimages","skills","namespacequotas"]
     verbs: ["get","list","watch","create","update","patch","delete"]
   - apiGroups: ["hades.dev"]
     resources: ["*/status"]
