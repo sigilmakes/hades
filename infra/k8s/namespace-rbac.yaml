@@ -14,6 +14,47 @@ metadata:
   labels:
     app.kubernetes.io/name: hades
 ---
+# Brain pod ServiceAccount — may exec into hands pods (the brain→hands wire).
+# Scoped to pods/exec + pods get/list only; no CRUD on other resources.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hades-brain
+  namespace: hades-system
+  labels:
+    app.kubernetes.io/name: hades
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hades-brain
+  labels:
+    app.kubernetes.io/name: hades
+rules:
+  # The brain execs read/write/exec into the agent's hands pod (sleep infinity).
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hades-brain
+  labels:
+    app.kubernetes.io/name: hades
+subjects:
+  - kind: ServiceAccount
+    name: hades-brain
+    namespace: hades-system
+roleRef:
+  kind: ClusterRole
+  name: hades-brain
+  apiGroup: rbac.authorization.k8s.io
+---
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -83,7 +124,7 @@ metadata:
 spec:
   # StorageClass is intentionally unset here so the cluster default applies.
   # Swap to a shared class (longhorn/nfs/cephfs) for multi-node — see
-  # deploy/README.md. local-path is fine for single-node k3s dev.
+  # infra/README.md. local-path is fine for single-node k3s dev.
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:

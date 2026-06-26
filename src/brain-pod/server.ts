@@ -4,8 +4,9 @@ import type { BrainDriver, BrainRunInput } from "../ports/BrainDriver.js";
 import type { EventStorePort } from "../ports/EventStore.js";
 import type { HandsBackend } from "../ports/HandsBackend.js";
 import { PiSdkBrainDriver } from "../adapters/brain/PiSdkBrainDriver.js";
-import { HttpHandsClient } from "../adapters/hands/HttpHandsClient.js";
 import { McpHandsClient } from "../adapters/hands/McpHandsClient.js";
+import { PodHandsBackend, handsPodName } from "../adapters/hands/PodHandsBackend.js";
+import { KubeClientNode } from "../adapters/kube/KubeClientNode.js";
 
 /**
  * The brain pod HTTP server.
@@ -13,20 +14,22 @@ import { McpHandsClient } from "../adapters/hands/McpHandsClient.js";
  * Lifts the model/harness loop out of the parent process into its own pod.
  * The brain pod embeds a pi SDK `AgentSession` — the *exact* code in
  * `PiSdkBrainDriver.run` — wrapped in an HTTP server exposing `POST /run`.
- * Tool calls route over HTTP to a hands endpoint (MCP Streamable HTTP by
- * default). The model loop code does not change; only the transport does.
+ * Tool calls exec into the agent's hands pod via the k8s API
+ * (`PodHandsBackend`); the hands pod is a thin sandbox the controller
+ * provisions. The model loop code does not change; only the transport does.
  *
  * Wire protocol (parent → brain): plain HTTP/JSON + SSE — the parent is an
  * orchestrator, not a tool client, so this is a thin run/stream wire, not MCP.
- * The brain→hands tool layer is the MCP path.
+ * The brain→hands tool layer is k8s exec.
  */
 export class BrainPod {
     readonly server: http.Server;
     private readonly driver: BrainDriver;
 
     constructor(options: BrainPodOptions) {
-        // Prefer MCP Streamable HTTP (the standards-aligned wire) when a hands
-        // URL is set; fall back to plain-HTTP hands for compatibility.
+        // The brain execs into the agent's hands pod via the k8s API by default.
+        // MCP over HTTP is an explicit opt-in (HADES_HANDS_URL) for alternate
+        // hands deployments.
         const hands = options.hands ?? defaultHandsFromEnv();
         const events = options.events ?? noopEventStore;
         const homeRoot = options.homeRoot ?? process.env.HADES_HOME_ROOT ?? "/home/agent";
@@ -159,26 +162,55 @@ const noopEventStore: EventStorePort = {
 };
 
 /**
- * Resolve the hands backend from env. Prefers MCP Streamable HTTP when
- * `HADES_HANDS_URL` is set; otherwise returns a stub that fails on use (not
- * on construction) so health/404 checks work without a hands endpoint.
- * Override by passing `hands` to {@link BrainPodOptions}.
+ * Resolve the hands backend from env.
+ *
+ * Default: build a {@link PodHandsBackend} that execs into the agent's hands
+ * pod. The controller sets `HADES_AGENT_NAME` + `HADES_AGENT_NAMESPACE` on the
+ * brain pod; the in-cluster ServiceAccount must be permitted `pods/exec`.
+ *
+ * Alternate: set `HADES_HANDS_URL` to route tool calls to an MCP hands pod
+ * instead (a different deployment shape). Override entirely by passing
+ * `hands` to {@link BrainPodOptions}.
+ *
+ * Resolution is **lazy**: the real backend is built on first use, so the brain
+ * pod can boot (and answer /healthz) before the agent env is meaningful, and
+ * tests that never touch hands don't need a cluster.
  */
 function defaultHandsFromEnv(): HandsBackend {
-    const url = process.env.HADES_HANDS_URL;
-    if (!url) return new UnconfiguredHands();
-    return new McpHandsClient(url);
+    return new LazyHands();
 }
 
-/** A hands backend that fails loudly on use when no hands endpoint is configured. */
-class UnconfiguredHands implements HandsBackend {
-    readonly mode = "unconfigured";
-    private fail(): never {
-        throw new Error("brain pod requires HADES_HANDS_URL (the hands pod endpoint) or an injected hands backend");
+/**
+ * A hands backend that resolves the real adapter on first use. Keeps the brain
+ * pod bootable without a cluster (health checks, tests that skip tools).
+ */
+class LazyHands implements HandsBackend {
+    readonly mode = "lazy";
+    private real?: HandsBackend;
+
+    private resolve(): HandsBackend {
+        if (this.real) return this.real;
+        const mcpUrl = process.env.HADES_HANDS_URL;
+        if (mcpUrl) { this.real = new McpHandsClient(mcpUrl); return this.real; }
+        const agentName = process.env.HADES_AGENT_NAME;
+        const namespace = process.env.HADES_AGENT_NAMESPACE ?? "default";
+        if (!agentName) {
+            throw new Error("brain pod requires HADES_AGENT_NAME (+ HADES_AGENT_NAMESPACE) to exec into a hands pod, or HADES_HANDS_URL for the MCP wire");
+        }
+        // The brain pod runs with an in-cluster ServiceAccount; KubeClientNode
+        // loads the SA config. Tests inject `hands` and never reach here.
+        this.real = new PodHandsBackend({
+            homeRoot: process.env.HADES_HOME_ROOT ?? "/home/agent",
+            kubeClient: new KubeClientNode(),
+            namespace,
+            pod: handsPodName({ kind: "Agent", metadata: { name: agentName, namespace } }),
+        });
+        return this.real;
     }
-    async read(): Promise<string> { this.fail(); }
-    async write(): Promise<{ path: string; bytes: number }> { this.fail(); }
-    async exec(): Promise<import("../domain/resources.js").ToolResult> { this.fail(); }
+
+    async read(path: string): Promise<string> { return this.resolve().read(path); }
+    async write(path: string, content: string): Promise<{ path: string; bytes: number }> { return this.resolve().write(path, content); }
+    async exec(request: import("../ports/HandsBackend.js").ExecRequest): Promise<import("../domain/resources.js").ToolResult> { return this.resolve().exec(request); }
 }
 
 export { nameOf };

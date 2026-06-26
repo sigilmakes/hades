@@ -77,8 +77,7 @@ src/adapters/    JSON/SQLite stores, pi-SDK + test + HTTP brains,
                  LocalConfined/Container/HTTP/MCP hands, k8s clients, HTTP API
 src/runtime/     HadesRuntime (the composition root) + Runtime base
 src/controller/  KubeController (CRDs → native k8s objects)
-src/brain-pod/   the brain pod HTTP server + CLI
-src/hands-pod/   the hands pod MCP server + CLI
+src/brain-pod/   the brain pod HTTP server + CLI (embeds PodHandsBackend)
 ```
 
 ## Core invariants

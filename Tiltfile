@@ -50,32 +50,16 @@ docker_build(
     ],
 )
 
-# ── Hands image ──
-# A thin sandbox (sleep infinity). The controller creates hands pods per agent;
-# the brain execs into them.
-docker_build(
-    'hades-hands',
-    '.',
-    dockerfile='infra/docker/Dockerfile.hands',
-    only=[
-        'infra/docker/Dockerfile.hands',
-    ],
-)
+# Hands pods use a base image (node:24-slim, sleep infinity) — no custom build
+# needed. The controller creates them per agent; the brain execs into them.
 
-# Load the brain + hands images into kind (no k8s resource references them
-# directly — the controller creates pods from them).
+# Load the brain image into kind (no k8s resource references it directly —
+# the controller creates brain pods from it).
 local_resource(
     'load-brain-image',
     'kind load docker-image hades-brain:latest --name hades',
     deps=['infra/docker/Dockerfile.brain'],
     resource_deps=['hades-brain'],
-    labels=['build'],
-)
-local_resource(
-    'load-hands-image',
-    'kind load docker-image hades-hands:latest --name hades',
-    deps=['infra/docker/Dockerfile.hands'],
-    resource_deps=['hades-hands'],
     labels=['build'],
 )
 

@@ -5,8 +5,7 @@
   "type": "module",
   "bin": {
     "hades": "dist/cli.js",
-    "hades-brain-pod": "dist/brain-pod/cli.js",
-    "hades-hands-pod": "dist/hands-pod/cli.js"
+    "hades-brain-pod": "dist/brain-pod/cli.js"
   },
   "scripts": {
     "clean": "node scripts/clean-dist.mjs",
@@ -16,7 +15,6 @@
     "serve": "npm run build && node dist/cli.js serve",
     "hades": "npm run build --silent && node dist/cli.js",
     "brain-pod": "npm run build --silent && node dist/brain-pod/cli.js",
-    "hands-pod": "npm run build --silent && node dist/hands-pod/cli.js",
     "prepack": "npm run build"
   },
   "engines": {

@@ -10,7 +10,7 @@ import type { EventStorePort } from "../ports/EventStore.js";
  * - `Agent` (desiredState=active) → brain `Deployment` + `Service`
  * - `Agent` (lifecycle=ephemeral, completed) → cascades brain/hands deletion
  * - `Home` → `PersistentVolumeClaim`
- * - `Hands` → hands `Deployment` + `Service`
+ * - `Hands` → hands `Deployment` (sleep-infinity sandbox; the brain execs into it)
  * - `Schedule` (type=cron/interval) → k8s `CronJob`
  * - `CapabilityGrant` → (logical policy; NetworkPolicy projection is a follow-on)
  *
@@ -103,6 +103,8 @@ export class KubeController {
                 template: {
                     metadata: { labels: { "hades.dev/agent": name, "hades.dev/role": "brain" } },
                     spec: {
+                        // The brain execs into hands pods via this SA (pods/exec only).
+                        serviceAccountName: "hades-brain",
                         containers: [{
                             name: "brain",
                             image: agent.spec?.brain?.image ?? "hades-brain:latest",
@@ -128,7 +130,7 @@ export class KubeController {
         await this.patchStatus(agent, { phase: "active", brainPod: `brain-${name}` });
     }
 
-    /** Hands → Deployment + Service (ClusterIP) for the hands pod (MCP). */
+    /** Hands → Deployment (sleep-infinity sandbox the brain execs into via the k8s API). */
     async reconcileHands(hands: HadesResource): Promise<void> {
         const ns = namespaceOf(hands);
         const name = nameOf(hands);
@@ -153,9 +155,11 @@ export class KubeController {
                 template: {
                     metadata: { labels: { "hades.dev/agent": agentName, "hades.dev/role": "hands" } },
                     spec: {
+                        // Hands pods must not be able to call back into the k8s API.
+                        automountServiceAccountToken: false,
                         containers: [{
                             name: "hands",
-                            image: hands.spec?.image ?? "hades-hands:latest",
+                            image: hands.spec?.image ?? "node:24-slim",
                             imagePullPolicy: "Never",
                             // The hands pod is a thin sandbox: sleep infinity. The brain
                             // execs read/write/exec into it via the k8s API. No server, no port.

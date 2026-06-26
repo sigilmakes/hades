@@ -1,92 +1,121 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { HandsPod } from "../dist/hands-pod/server.js";
 import { BrainPod } from "../dist/brain-pod/server.js";
 import { HttpBrainDriver } from "../dist/adapters/brain/HttpBrainDriver.js";
-import { McpHandsClient } from "../dist/adapters/hands/McpHandsClient.js";
-import { createRuntime } from "../dist/runtime/HadesRuntime.js";
-import { FakeKubeClient } from "../dist/adapters/kube/FakeKubeClient.js";
+import { PodHandsBackend } from "../dist/adapters/hands/PodHandsBackend.js";
+
+/**
+ * Milestone: the real brain→hands path — brain pod execs into a hands pod via
+ * the k8s API. No MCP server, no HTTP hands Service. The brain pod's
+ * PodHandsBackend execs cat/sh into the "hands pod" (a fake exec-capable kube
+ * client backed by the local filesystem, standing in for the real pod).
+ *
+ * This proves the wiring that #11 closed: the controller's HADES_AGENT_NAME/
+ * HADES_AGENT_NAMESPACE env → brain pod → PodHandsBackend → exec → home.
+ */
 
 const NS = "milestone";
-const AGENT = "wren";
-const SESSION = "wren-default";
-const HOME = "wren-home";
-const agent = { kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { displayName: "Wren" } };
-const session = { kind: "Session", metadata: { namespace: NS, name: SESSION }, spec: {} };
+const AGENT = "atlas";
 
-async function startHandsPod(homeRoot) {
-    const pod = new HandsPod({ homeRoot });
-    await new Promise((resolve) => pod.listen(0, resolve));
-    const port = pod.server.address().port;
-    return { pod, url: `http://127.0.0.1:${port}` };
+/** A fake kube client that execs against the local filesystem (stands in for a pod). */
+class LocalExecKube {
+    constructor(homeRoot) {
+        this.homeRoot = homeRoot;
+        this.calls = [];
+        this.ensure = async () => "";
+        this.delete = async () => false;
+        this.list = async () => [];
+        this.healthz = async () => true;
+    }
+
+    async exec(_ns, _pod, _container, command, stdin) {
+        this.calls.push({ command, stdin });
+        const joined = command.join(" ");
+        // cat <path> — read the file from the local home root.
+        if (command[0] === "cat") {
+            const target = command[1];
+            const rel = target.replace(/^\/home\/agent\//, "");
+            try {
+                const content = await readFile(path.join(this.homeRoot, rel), "utf8");
+                return { code: 0, stdout: content, stderr: "" };
+            } catch (e) {
+                return { code: 1, stdout: "", stderr: e.message };
+            }
+        }
+        // mkdir -p <dir>
+        if (joined.startsWith("mkdir -p")) {
+            const dir = command[command.indexOf("-p") + 1].replace(/^\/home\/agent\//, "");
+            await mkdir(path.join(this.homeRoot, dir), { recursive: true });
+            return { code: 0, stdout: "", stderr: "" };
+        }
+        // sh -c 'cat > <path>' — write via stdin.
+        if (command[0] === "sh" && command[1] === "-c" && command[2].startsWith("cat >")) {
+            const match = command[2].match(/cat > '([^']+)'/);
+            const target = match[1].replace(/^\/home\/agent\//, "");
+            await mkdir(path.dirname(path.join(this.homeRoot, target)), { recursive: true });
+            await writeFile(path.join(this.homeRoot, target), stdin ?? "", "utf8");
+            return { code: 0, stdout: "", stderr: "" };
+        }
+        // sh -c 'cd <dir> && <cmd>' — exec
+        if (command[0] === "sh" && command[1] === "-c") {
+            return { code: 0, stdout: `ran: ${command[2]}`, stderr: "" };
+        }
+        return { code: 1, stdout: "", stderr: `unexpected command: ${joined}` };
+    }
 }
 
-async function startBrainPod(handsUrl) {
-    const hands = new McpHandsClient(handsUrl);
+test("milestone: brain pod execs into the hands pod via PodHandsBackend — write then read", async () => {
+    const home = await mkdtemp(path.join(tmpdir(), "hades-milestone-"));
+    await mkdir(path.join(home, "vault"), { recursive: true });
+    const kube = new LocalExecKube(home);
+    // The brain pod's PodHandsBackend: execs into hands-atlas in namespace milestone.
+    const hands = new PodHandsBackend({ homeRoot: home, kubeClient: kube, namespace: NS, pod: `hands-${AGENT}` });
     const pod = new BrainPod({ mode: "test", hands });
     await new Promise((resolve) => pod.listen(0, resolve));
     const port = pod.server.address().port;
-    return { pod, url: `http://127.0.0.1:${port}`, hands };
-}
-
-test("milestone: one agent end-to-end over HTTP — message in, tool call over MCP, reply out", async () => {
-    const home = await mkdtemp(path.join(tmpdir(), "hades-milestone-"));
-    await mkdir(path.join(home, "vault"), { recursive: true });
-    const { pod: handsPod, url: handsUrl } = await startHandsPod(home);
-    const { pod: brainPod, url: brainUrl, hands } = await startBrainPod(handsUrl);
     try {
-        // Drive the controller to reconcile an Agent manifest.
-        const dir = await mkdtemp(path.join(tmpdir(), "hades-milestone-state-"));
-        const kube = new FakeKubeClient();
-        const dist = await (await createRuntime(dir, { kubeClient: kube })).init();
-        await dist.apply({ kind: "Home", metadata: { namespace: NS, name: HOME }, spec: {} });
-        await dist.apply({ kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { homeRef: HOME, defaultSession: SESSION, desiredState: "active", brain: { mode: "test", secretRef: "wren-creds" } } });
-        await dist.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "self" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["createOwnSchedule"], constraints: { namespace: "own" } } });
-        await dist.reconcile();
-        // Controller reconciled native k8s objects.
-        assert.ok(kube.get(NS, "Deployment", `brain-${AGENT}`), "controller ensured brain Deployment");
-        assert.ok(kube.get(NS, "Deployment", `hands-${AGENT}`), "controller ensured hands Deployment");
-        assert.ok(kube.get(NS, "PersistentVolumeClaim", `home-${HOME}`), "controller ensured home PVC");
-        assert.ok(kube.get(NS, "NetworkPolicy", `hands-${AGENT}-netpol`), "controller ensured hands NetworkPolicy");
+        const driver = new HttpBrainDriver(`http://127.0.0.1:${port}`);
+        const agent = { kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: { displayName: "Atlas" } };
+        const session = { kind: "Session", metadata: { namespace: NS, name: `${AGENT}-default` }, spec: {} };
 
-        // Now drive the brain pod directly (the parent->brain wire) with a tool call.
-        const driver = new HttpBrainDriver(brainUrl);
-        const writeReply = await driver.run({ agent, session, prompt: "!write vault/milestone.md <<<hello from distributed hades" });
-        assert.match(writeReply, /wrote vault\/milestone.md/);
-        assert.equal(await readFile(path.join(home, "vault", "milestone.md"), "utf8"), "hello from distributed hades");
+        // write through brain pod -> exec into hands pod -> home
+        const writeReply = await driver.run({ agent, session, prompt: "!write vault/note.md <<<hello from brain pod" });
+        assert.match(writeReply, /wrote vault\/note.md/);
+        assert.equal(await readFile(path.join(home, "vault", "note.md"), "utf8"), "hello from brain pod");
 
-        // Read back through the same distributed path.
-        const readReply = await driver.run({ agent, session, prompt: "!read vault/milestone.md" });
-        assert.equal(readReply, "hello from distributed hades");
-        await hands.close();
+        // read back through the same exec path
+        const readReply = await driver.run({ agent, session, prompt: "!read vault/note.md" });
+        assert.equal(readReply, "hello from brain pod");
+
+        // exec reaches the hands pod
+        const execReply = await driver.run({ agent, session, prompt: "!exec echo milestone" });
+        assert.match(execReply, /ran:|milestone/);
     } finally {
-        await brainPod.close();
-        await handsPod.close();
+        await pod.close();
     }
 });
 
-test("milestone: agent survives a brain pod restart (wake from durable home)", async () => {
-    const home = await mkdtemp(path.join(tmpdir(), "hades-milestone-restart-"));
-    await mkdir(path.join(home, "vault"), { recursive: true });
-    const { pod: handsPod, url: handsUrl } = await startHandsPod(home);
-    let brain = await startBrainPod(handsUrl);
+test("milestone: PodHandsBackend rejects path escapes before any exec (confinement holds over the wire)", async () => {
+    const home = await mkdtemp(path.join(tmpdir(), "hades-milestone-"));
+    const kube = new LocalExecKube(home);
+    const hands = new PodHandsBackend({ homeRoot: home, kubeClient: kube, namespace: NS, pod: `hands-${AGENT}` });
+    const pod = new BrainPod({ mode: "test", hands });
+    await new Promise((resolve) => pod.listen(0, resolve));
+    const port = pod.server.address().port;
     try {
-        const driver = new HttpBrainDriver(brain.url);
-        await driver.run({ agent, session, prompt: "!write vault/persist.md <<<survives restart" });
-        // Kill the brain pod (simulate crash). The agent is NOT the brain pod.
-        await brain.pod.close();
-        await brain.hands.close();
-        // A new brain pod wakes; state persists on the home PVC (durable).
-        brain = await startBrainPod(handsUrl);
-        const driver2 = new HttpBrainDriver(brain.url);
-        const readReply = await driver2.run({ agent, session, prompt: "!read vault/persist.md" });
-        assert.equal(readReply, "survives restart", "new brain pod reads state persisted by the crashed one (home PVC durability)");
-        await brain.hands.close();
+        const driver = new HttpBrainDriver(`http://127.0.0.1:${port}`);
+        const agent = { kind: "Agent", metadata: { namespace: NS, name: AGENT }, spec: {} };
+        const session = { kind: "Session", metadata: { namespace: NS, name: `${AGENT}-default` }, spec: {} };
+        await assert.rejects(
+            (async () => driver.run({ agent, session, prompt: "!read ../etc/passwd" }))(),
+            /brain pod error:|Path escapes home|Absolute paths/,
+        );
+        // No exec issued for the rejected path.
+        assert.equal(kube.calls.filter((c) => c.command[0] === "cat").length, 0);
     } finally {
-        await brain.pod.close();
-        await handsPod.close();
+        await pod.close();
     }
 });

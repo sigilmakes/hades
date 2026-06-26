@@ -6,7 +6,7 @@ const mode = process.env.HADES_BRAIN_MODE ?? "pi-sdk";
 
 const pod = new BrainPod({ mode });
 pod.listen(port, () => {
-    console.log(`hades brain-pod listening on :${port} (mode=${mode}, hands=${process.env.HADES_HANDS_URL ?? "unset"})`);
+    console.log(`hades brain-pod listening on :${port} (mode=${mode}, hands=${process.env.HADES_HANDS_URL ? `mcp:${process.env.HADES_HANDS_URL}` : `exec:${process.env.HADES_AGENT_NAMESPACE ?? "default"}/${process.env.HADES_AGENT_NAME ?? "?"}`})`);
 });
 
 process.on("SIGTERM", async () => {

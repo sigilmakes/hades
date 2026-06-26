@@ -13,8 +13,7 @@ single-node constructs.
 | `k8s/namespace-rbac.yaml` | `hades-system` namespace, controller `ServiceAccount`, `ClusterRole`/`Binding`, and the `hades-data` PVC. |
 | `k8s/api.yaml` | The control-plane `Deployment` + `Service` (runs `hades controller` with `HADES_KUBE=1`). |
 | `docker/Dockerfile.api` | Control-plane image (API server + controller). |
-| `docker/Dockerfile.brain` | Brain pod image (pi SDK model loop). |
-| `docker/Dockerfile.hands` | Hands pod image (`sleep infinity` sandbox — the brain execs into it). |
+| `docker/Dockerfile.brain` | Brain pod image (pi SDK model loop, embeds PodHandsBackend). |
 | `kind/kind-config.template.yaml` | kind cluster config template (used by `scripts/dev-setup.sh`). |
 
 ## Dev loop
@@ -45,9 +44,10 @@ cluster.
 | `Schedule` (cron/interval) | `CronJob` (`sched-<name>`) |
 | `CapabilityGrant` | logical policy (NetworkPolicy projection is follow-on work) |
 
-Brain and hands pods are launched by the controller from the images named in
-each resource's `spec.brain.image` / `spec.image` (defaults
-`hades-brain:latest` / `hades-hands:latest`, loaded into kind by Tilt).
+Brain pods are launched by the controller from the image named in each
+resource's `spec.brain.image` (default `hades-brain:latest`, loaded into kind
+by Tilt). Hands pods use a base image (`node:24-slim`, `sleep infinity`);
+no custom build is needed.
 
 ## Node-count-agnostic by construction
 
