@@ -1,4 +1,4 @@
-import type { KubeClient, KubeObject } from "../../ports/KubeClient.js";
+import type { KubeClient, KubeObject, ExecResult } from "../../ports/KubeClient.js";
 
 /**
  * An in-memory {@link KubeClient} for tests and dev mode — no real cluster
@@ -34,6 +34,14 @@ export class FakeKubeClient implements KubeClient {
 
     async healthz(): Promise<boolean> {
         return true;
+    }
+
+    async exec(_namespace: string, _pod: string, _container: string, command: string[], _stdin?: string): Promise<ExecResult> {
+        // The fake client cannot exec into a real pod. Tests that need exec
+        // behavior inject a custom KubeClient or assert via the controller's
+        // ensured objects rather than execution results.
+        void command;
+        throw new Error("FakeKubeClient cannot exec into pods; inject a custom KubeClient for exec tests");
     }
 
     /** Get a single object (test helper). */

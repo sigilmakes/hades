@@ -21,6 +21,8 @@ export interface KubeClient {
     list(namespace: string, kind: string): Promise<KubeObject[]>;
     /** Health check. */
     healthz(): Promise<boolean>;
+    /** Exec a command in a pod's container. Returns stdout/stderr + exit code. */
+    exec(namespace: string, pod: string, container: string, command: string[], stdin?: string): Promise<ExecResult>;
 }
 
 /** A minimal k8s object shape the controller produces. */
@@ -30,6 +32,13 @@ export interface KubeObject {
     metadata: { name: string; namespace?: string; labels?: Record<string, string>; ownerReferences?: Array<{ apiVersion: string; kind: string; name: string; uid?: string; blockOwnerDeletion?: boolean; controller?: boolean }> };
     spec?: Record<string, any>;
     /** Wire format role/selector strings, etc. kept as opaque for the client. */
+}
+
+/** Result of an exec into a pod. */
+export interface ExecResult {
+    code: number;
+    stdout: string;
+    stderr: string;
 }
 
 /** Labels the controller stamps on every object it owns. */

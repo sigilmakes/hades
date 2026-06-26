@@ -1,5 +1,6 @@
 import * as k8s from "@kubernetes/client-node";
-import type { KubeClient, KubeObject } from "../../ports/KubeClient.js";
+import { PassThrough } from "node:stream";
+import type { KubeClient, KubeObject, ExecResult } from "../../ports/KubeClient.js";
 
 /**
  * A real {@link KubeClient} backed by `@kubernetes/client-node` for deploy
@@ -75,6 +76,26 @@ export class KubeClientNode implements KubeClient {
         } catch {
             return false;
         }
+    }
+
+    async exec(namespace: string, pod: string, container: string, command: string[], stdin?: string): Promise<ExecResult> {
+        const exec = new k8s.Exec(this.kc);
+        const stdout = new PassThrough();
+        const stderr = new PassThrough();
+        const stdinStream = new PassThrough();
+        if (stdin) stdinStream.end(stdin);
+        else stdinStream.end();
+        let code = 0;
+        const done = new Promise<void>((resolve) => {
+            exec.exec(namespace, pod, container, command, stdout, stderr, stdinStream, false, (status) => {
+                code = status.status === "Success" ? 0 : 1;
+                resolve();
+            }).then((ws) => {
+                ws.on("close", () => resolve());
+            }).catch(() => resolve());
+        });
+        await done;
+        return { code, stdout: stdout.read()?.toString() ?? "", stderr: stderr.read()?.toString() ?? "" };
     }
 
     private async createByKind(ns: string, group: string, version: string, kind: string, body: any): Promise<void> {
