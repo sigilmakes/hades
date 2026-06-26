@@ -7,11 +7,18 @@ import { createStaticHandler } from "./static.js";
 /** A request handler: given the parsed body + URL, return a JSON-serializable result (or throw). */
 type Handler = (ctx: RequestContext) => Promise<unknown> | unknown;
 
+/** Sentinel a handler returns when it has written the response itself (e.g. SSE). */
+export const STREAMING = Symbol("hades.streaming");
+
 type RequestContext = {
     url: URL;
     body: Record<string, unknown>;
     /** Path params extracted by the matcher (e.g. /agents/:name/message -> { name }). */
     params: Record<string, string>;
+    /** The raw response, for handlers that stream directly (SSE). */
+    res: ServerResponse;
+    /** The raw request, for handlers that need close events (SSE lifetime). */
+    req: IncomingMessage;
 };
 
 type Route = {
@@ -53,6 +60,26 @@ function routes(runtime: Runtime): Route[] {
         { method: "GET", path: "/readyz", handler: () => (runtime.ready ? { ok: true } : { __status: 503, body: { ok: false, reason: "not initialized" } }) },
         { method: "GET", path: "/hades/v1/agents", handler: () => runtime.state.list("Agent") },
         { method: "GET", path: "/hades/v1/events", handler: (c) => runtime.events.list(c.url.searchParams.get("session") ?? undefined) },
+        {
+            method: "GET", path: "/hades/v1/events/stream", handler: (c) => {
+                if (!runtime.events.subscribe) return { __status: 503, body: { error: "streaming unsupported by this store" } };
+                const res = c.res;
+                res.writeHead(200, {
+                    "content-type": "text/event-stream",
+                    "cache-control": "no-cache",
+                    connection: "keep-alive",
+                });
+                // Replay recent history so a freshly-opened stream sees context, then stream live.
+                runtime.events.list(c.url.searchParams.get("session") ?? undefined)
+                    .then((history) => {
+                        for (const evt of history) res.write(`data: ${JSON.stringify(evt)}\n\n`);
+                        const unsub = runtime.events.subscribe!((evt) => res.write(`data: ${JSON.stringify(evt)}\n\n`));
+                        c.req.on("close", unsub);
+                    })
+                    .catch((e) => res.write(`data: ${JSON.stringify({ error: String(e) })}\n\n`));
+                return STREAMING;
+            },
+        },
         { method: "GET", path: "/hades/v1/state", handler: () => runtime.snapshot() },
         { method: "GET", path: "/hades/v1/projections/agents", handler: (c) => p.agentTree(c.url.searchParams.get("namespace") ?? undefined) },
         { method: "GET", path: "/hades/v1/projections/activity", handler: (c) => p.activityTail(c.url.searchParams.get("session") ?? undefined, Number(c.url.searchParams.get("limit") ?? 50)) },
@@ -143,7 +170,8 @@ export function createServer(runtime: Runtime, uiDir?: string): http.Server {
                 return json(res, { error: "not found" }, 404);
             }
             const body = await readBody(req);
-            const result = await matched.route.handler({ url, body, params: matched.params });
+            const result = await matched.route.handler({ url, body, params: matched.params, res, req });
+            if (result === STREAMING) return; // handler wrote the response itself
             // A handler may return { __status, body } to set a non-200 status.
             if (result && typeof result === "object" && "__status" in result) {
                 const r = result as { __status: number; body: unknown };

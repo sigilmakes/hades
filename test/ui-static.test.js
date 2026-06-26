@@ -124,3 +124,44 @@ test("GET /agents/:name/logs returns 503 without a live cluster", async () => {
         server.close();
     }
 });
+
+test("GET /hades/v1/events/stream sends history then live events (SSE)", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "hades-static-"));
+    const runtime = await (await createRuntime(dir)).init();
+    // Seed history.
+    await runtime.apply({ kind: "Agent", metadata: { name: "hist", namespace: "ns" }, spec: { desiredState: "active", brain: { mode: "test" } } });
+    const server = createServer(runtime);
+    await new Promise((r) => server.listen(0, r));
+    const port = server.address().port;
+    try {
+        const res = await fetch(`http://127.0.0.1:${port}/hades/v1/events/stream`);
+        assert.equal(res.status, 200);
+        assert.match(res.headers.get("content-type") ?? "", /text\/event-stream/);
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        // Read the replayed history (one event).
+        let buf = "";
+        let seenHistory = false;
+        for (let i = 0; i < 20 && !seenHistory; i++) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            if (buf.includes("hist")) seenHistory = true;
+        }
+        assert.ok(seenHistory, "stream replayed history containing 'hist'");
+        // Append a live event; the stream should deliver it.
+        await runtime.apply({ kind: "Agent", metadata: { name: "live", namespace: "ns" }, spec: { desiredState: "active", brain: { mode: "test" } } });
+        buf = "";
+        let seenLive = false;
+        for (let i = 0; i < 30 && !seenLive; i++) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            if (buf.includes("live")) seenLive = true;
+        }
+        assert.ok(seenLive, "stream delivered the live event containing 'live'");
+        await reader.cancel();
+    } finally {
+        server.close();
+    }
+});
