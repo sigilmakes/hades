@@ -2,8 +2,8 @@ import * as k8s from "@kubernetes/client-node";
 import type { KubeClient, KubeObject } from "../../ports/KubeClient.js";
 
 /**
- * A real {@link KubeClient} backed by `@kubernetes/client-node` (P4 deploy
- * mode). Loads cluster config from the standard locations (in-cluster
+ * A real {@link KubeClient} backed by `@kubernetes/client-node` for deploy
+ * mode. Loads cluster config from the standard locations (in-cluster
  * ServiceAccount, kubeconfig, or `KUBECONFIG`/`~/.kube/config`).
  *
  * `ensure` is idempotent create-or-update against the live cluster. The

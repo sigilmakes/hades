@@ -2,11 +2,11 @@ import type { HadesResource } from "../domain/resources.js";
 
 /**
  * A minimal Kubernetes client port — the seam between the Hades controller and
- * a real cluster (P4). The controller reasons about Hades resources and asks
- * the client to ensure native k8s objects exist (idempotent apply/upsert).
+ * a real cluster. The controller reasons about Hades resources and asks the
+ * client to ensure native k8s objects exist (idempotent apply/upsert).
  *
- * A {@link FakeKubeClient} satisfies this for tests (no cluster needed); a real
- * `@kubernetes/client-node`-backed client satisfies it for deploy mode.
+ * A {@link FakeKubeClient} satisfies this for tests (no cluster needed);
+ * `KubeClientNode` satisfies it for deploy mode against a live cluster.
  *
  * Design: the controller computes the *intended* k8s objects for a Hades
  * resource and calls `ensure`. The client makes reality match intent. This

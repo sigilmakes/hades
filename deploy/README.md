@@ -1,60 +1,70 @@
 # Hades Deploy
 
-Manifests for the deploy (distributed) mode: a Kubernetes-native Hades operator.
-This is the substrate for P1–P6 of the distributed roadmap. **P0 ships the
-seam only** — the namespace/RBAC + data PVC; no brain/hands pods yet.
+Manifests for the Kubernetes-native Hades operator. The controller reconciles
+Hades custom resources into standard Kubernetes objects (Deployments, PVCs,
+CronJobs, Services, NetworkPolicies) — no hostPath, no single-node constructs.
 
 ## What's here
 
 | File | Purpose |
 |------|---------|
-| `crds/hades.dev_resources.yaml` | All Hades CRDs (preserved from the simulation). |
-| `namespace-rbac.yaml` | `hades-system` namespace, controller `ServiceAccount`, `ClusterRole`/`Binding`, and the `hades-data` PVC. |
-| `local.yaml` | Legacy single-pod dev manifest (the simulation, containerized). Kept for the "one process" path. |
+| `crds/hades.dev_resources.yaml` | All Hades custom resource definitions (`Agent`, `Home`, `Hands`, `Session`, `BrainBinding`, `Listener`, `Schedule`, `Run`, `Approval`, `CapabilityGrant`, `AgentClass`). |
+| `namespace-rbac.yaml` | `hades-system` namespace, controller `ServiceAccount`, `ClusterRole`/`Binding` (CRDs + native objects the controller reconciles), and the `hades-data` PVC. |
+| `local.yaml` | Single-pod manifest running the Hades API server (`hades serve`) on a local data volume. The simplest way to run the control plane in a cluster. |
 
-## The substrate contract (D3: node-count-agnostic)
+## Node-count-agnostic by construction
 
-The operator uses **only** standard Kubernetes API objects. There is no
-single-node-only construct:
+The operator uses **only** standard Kubernetes API objects:
 
-- ✅ `Deployment` (brains), `Job`/`CronJob` (hands, schedules), `PVC` (homes),
-  `Service` (ClusterIP), `NetworkPolicy` + `RBAC` (capability projection).
-- ❌ No `hostPath` volumes. No bare host processes. No `localhost:` ports that
-  assume one node. No `nodeSelector` pinning to a single node.
+- ✅ `Deployment` (brains), `CronJob` (schedules), `PVC` (homes + control-plane data), `Service` (ClusterIP), `NetworkPolicy` + `RBAC` (capability projection).
+- ❌ No `hostPath` volumes. No bare host processes. No `localhost:` ports that assume one node. No `nodeSelector` pinning to a single node.
 
-Because k3s **is** k8s (same API, kubectl, operators, CRDs), the
-single-node → multi-node path is a config change, not a rewrite:
+k3s **is** Kubernetes (same API, `kubectl`, operators, CRDs), so single-node →
+multi-node is a config change, never a code change:
 
-1. **StorageClass swap.** The `hades-data` PVC (and per-home PVCs, P4) leave
+1. **StorageClass swap.** The `hades-data` PVC and per-home PVCs leave
    `spec.storageClassName` unset so the cluster default applies. On single-node
-   k3s that is `local-path`. To go multi-node, set the StorageClass to a shared
-   provisioner (`longhorn`, `nfs`, `cephfs`) and recreate the PVCs — **zero
-   code change**. This is the "dumb as rocks" migration: join nodes + swap the
-   StorageClass.
+   k3s that is `local-path`. To go multi-node, point the StorageClass at a
+   shared provisioner (`longhorn`, `nfs`, `cephfs`) and recreate the PVCs —
+   zero code change.
 2. **Networking is unchanged.** `ClusterIP` services and `NetworkPolicy`
    resolve identically on one node or N.
 3. **No node pinning.** The controller never assumes which node a brain/hands
    pod lands on.
 
+## What the controller reconciles
+
+| Hades resource | Native objects |
+|----------------|----------------|
+| `Home` | `PersistentVolumeClaim` (`home-<name>`) |
+| `Agent` (active) | brain `Deployment` + `Service` (`brain-<name>`); model credentials mounted from a `Secret` via `envFrom` |
+| `Agent` (ephemeral, completed) | cascade-delete brain/hands pods (via `ownerReferences`) |
+| `Hands` | hands `Deployment` + `Service` + `NetworkPolicy` (brain→hands only, no egress) |
+| `Schedule` (cron/interval) | `CronJob` (`sched-<name>`) |
+| `CapabilityGrant` | logical policy (NetworkPolicy projection is a follow-on) |
+
 ## Applying
 
 ```bash
+# 1. Install the CRDs
 kubectl apply -f deploy/crds/hades.dev_resources.yaml
+
+# 2. Namespace, RBAC, and the control-plane data PVC
 kubectl apply -f deploy/namespace-rbac.yaml
-# (P4) controller Deployment goes here once the controller exists.
+
+# 3. Run the controller (reconcile loop). Set HADES_KUBE=1 to use the real
+#    cluster client; otherwise it runs against an in-memory fake (dev/tests).
+HADES_MODE=distributed HADES_KUBE=1 node dist/cli.js controller
 ```
 
-## Status (P0)
+Brain and hands pods are launched by the controller from the images named in
+each resource's `spec.brain.image` / `spec.image` (defaults
+`ghcr.io/hades-dev/hades-brain:dev` / `ghcr.io/hades-dev/hades-hands:dev`).
+Build them from `src/brain-pod` and `src/hands-pod`.
 
-P0 ships **the seam, not the pods**. `hades controller` runs the reconcile loop
-in-process (the dev-mode kernel reused), verifying the wiring shape against
-real stores. P1–P4 replace stub adapters with pod-backed ones:
+## Status
 
-- **P1**: brain pod (HTTP `/run` + SSE).
-- **P2**: hands pod + MCP Streamable HTTP wire.
-- **P3**: durable event store (sqlite-on-PVC → Postgres).
-- **P4**: real controller (CRDs → native k8s objects via `@kubernetes/client-node`).
-- **P5**: milestone — one agent end-to-end over HTTP on local k3s.
-- **P6**: distributed `spawnAgent` (pod-per-spawn).
-
-See `scratchpad/plans/hades-distributed-roadmap/` for the full plan.
+The controller logic is fully tested against a `FakeKubeClient`. The live
+cluster path (`@kubernetes/client-node`-backed `KubeClientNode`, enabled with
+`HADES_KUBE=1`) is wired but not yet exercised against a real cluster — that
+smoke test is outstanding work.

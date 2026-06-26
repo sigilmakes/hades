@@ -100,9 +100,9 @@ export function bridgeForListener(listener: HadesResource, sessionRef: string): 
             sessionRef,
         );
     }
-    // Platform bridges (discord/matrix/email/web) are future adapters; the
-    // contract is fixed. For now they throw on start — the resource model and
-    // routing exist, the bridge SDK is the only missing piece.
+    // Platform bridges (discord/matrix/email/web) are adapters behind this
+    // same port; their SDKs are not wired yet. The resource model and routing
+    // exist; the bridge SDK is the only missing piece.
     return new UnconfiguredBridge(platform);
 }
 

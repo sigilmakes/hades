@@ -2,16 +2,16 @@ import type { BrainDriver, BrainRunInput } from "../../ports/BrainDriver.js";
 
 /**
  * A {@link BrainDriver} that satisfies `run` by calling a brain pod's
- * `POST /run` endpoint and returning the final reply (P1).
+ * `POST /run` endpoint and returning the final reply.
  *
- * This is the parent side of the brain wire (D2): plain HTTP/JSON + SSE.
- * The parent is an orchestrator, not a tool client — it sends a run request
- * and awaits the full reply. Token streaming arrives on the SSE wire but the
+ * This is the parent side of the brain wire: plain HTTP/JSON + SSE. The parent
+ * is an orchestrator, not a tool client — it sends a run request and awaits
+ * the full reply. Token streaming arrives on the SSE wire but the
  * {@link BrainDriver} port returns `Promise<string>`, so the client consumes
  * the stream and returns the assembled reply.
  *
  * `HADES_BRAIN_URL` (or the constructor arg) is the brain pod base URL, e.g.
- * `http://brain-wren.hades.svc.cluster.local`.
+ * `http://brain-atlas.hades.svc.cluster.local`.
  */
 export class HttpBrainDriver implements BrainDriver {
     readonly mode = "http";

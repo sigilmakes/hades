@@ -1,106 +1,79 @@
 # 01 — Thesis
 
-## The Problem
+Hades is a Kubernetes-native agent operating system. A small kernel supervises
+agent workloads — brains, hands, listeners — as disposable pods, while durable
+state (sessions, homes, capabilities) survives every crash.
 
-Most agent orchestration systems hide multiple agents behind one outer tool call:
+## What it is
 
-```text
-main agent
-  |
-  | tool: run_workflow(...)
-  v
-hidden harness
-  ├─ hidden subagent A
-  ├─ hidden subagent B
-  └─ hidden subagent C
-  |
-  v
-single returned blob
+Agents are managed compute units in a distributed operating system. The kernel
+owns the boring, precious things — scheduling, durable session/event logs,
+agent Homes, the capability system — and supervises squishy workloads that are
+spun up when there is work and killed when idle.
+
+```mermaid
+flowchart LR
+    subgraph precious["kernel + durable state"]
+        K["control plane"]
+        D["durable logs + homes + capabilities"]
+    end
+    subgraph cattle["workloads (cattle)"]
+        B["brains"]
+        H["hands"]
+        L["listeners"]
+    end
+    K --- D
+    K -->|supervise| cattle
 ```
 
-That is the wrong abstraction for long-running work. Agents become invisible implementation details. Humans cannot talk to a subagent. Failures collapse into one tool error. The dashboard becomes a post-hoc renderer rather than a live operating surface.
+## What it supports
 
-Hades starts from the opposite premise:
-
-> Agents are managed compute units in a distributed operating system.
-
-## Product Thesis
-
-Hades is a Kubernetes-native agent operating system. It provides a minimal kernel for running agents with durable state, scoped capabilities, and observable lifecycles.
-
-It must support:
-
-- long-lived resident agents like Wren
-- ephemeral coding/research/review subagents
+- long-lived **resident agents** and short-lived **ephemeral agents** spawned for one task
 - direct human-to-agent and agent-to-agent communication
-- per-agent listeners such as Discord, Matrix, email, web, and CLI
-- agent-authored schedules and tools
+- per-agent **listeners** (Discord, Matrix, email, web, CLI)
+- agent-authored **schedules** and tools
 - durable session/event logs
 - pi SDK brain execution
 - disposable hands/tool pods
-- policy-checked self-modification
+- capability-checked self-modification
 - system agents that manage the cluster itself
 
-## Why Old Nest Failed
+## The OS analogy
 
-The old Wren harness bundled too much into one pet container:
-
-```text
-one container
-  ├─ pi RPC brain
-  ├─ tool sandbox
-  ├─ vault
-  ├─ cron jobs
-  ├─ SSH keys and model auth
-  ├─ Discord bridge
-  ├─ dashboard
-  ├─ HTTP API
-  └─ generated code execution
+```mermaid
+flowchart LR
+    subgraph linux["Linux"]
+        K1["kernel"]
+        DAEM["daemons (resident)"]
+        THROW["throwaway processes (ephemeral)"]
+    end
+    subgraph hades["Hades"]
+        K2["control plane"]
+        RES["resident agents"]
+        EPH["ephemeral agents"]
+    end
+    K1 --- DAEM
+    K1 --- THROW
+    K2 --- RES
+    K2 --- EPH
 ```
 
-The wrong part was **not** Wren editing her crons or building tools. That was userland working correctly.
+A Linux box has one kernel and two kinds of processes: daemons (long-running,
+privileged) and throwaway processes (short-lived, confined). Hades is the same
+shape, for agents. Only the kernel and durable state are precious; everything
+else is cattle — re-created from the durable log on crash.
 
-The wrong part was putting the kernel, brain, hands, credentials, home, dashboard, and deployment generator in one environment.
-
-## Design Center
-
-Hades makes the OS boundary explicit:
-
-```text
-kernel:    small control plane, controllers, APIs, policy, durable logs
-userland:  agent homes, crons, vaults, tools, projects, skills
-hands:     disposable execution pods
-listeners: attached devices and bridges
-brains:    model/harness loops via pi SDK
-```
-
-## Core Rejection
-
-Tool calls are good for narrow capability boundaries:
+## Design center
 
 ```text
-read file
-run command
-query API
-send message
-create schedule
+kernel     small control plane: API, controllers, policy, durable logs
+userland   agent homes, crons, vaults, tools, projects, skills
+hands      disposable execution pods (no model credentials)
+listeners  attached devices and bridges
+brains     model/harness loops via the pi SDK
 ```
 
-Tool calls are bad as the primary representation for an agent society.
-
-A society needs:
-
-```text
-identity
-addressing
-lifecycles
-logs
-homes
-permissions
-schedules
-listeners
-topology
-supervision
-```
-
-That is Hades.
+Tool calls are the right boundary for narrow capabilities (read a file, run a
+command, create a schedule). An agent society also needs identity, addressing,
+lifecycles, logs, homes, permissions, schedules, listeners, topology, and
+supervision — that is what Hades provides.

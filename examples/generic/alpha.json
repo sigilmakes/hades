@@ -34,7 +34,7 @@
   "metadata": { "namespace": "agent-demo", "name": "demo-self-management" },
   "spec": {
     "subject": { "kind": "Agent", "name": "demo" },
-    "capabilities": ["updateOwnHome", "createOwnTool", "createOwnSchedule", "spawnChildAgent"],
+    "capabilities": ["createOwnSchedule", "spawnAgent", "createHome", "emitArtifact"],
     "constraints": { "namespace": "own" }
   }
 }

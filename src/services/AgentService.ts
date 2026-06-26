@@ -35,7 +35,7 @@ export class AgentService {
                 apiVersion: "hades.dev/v1alpha1",
                 kind: "BrainBinding",
                 metadata: { namespace, name: `${agentName}-default` },
-                spec: { agentRef: agentName, sessionRef: sessionName, image: "ghcr.io/sigilmakes/hades-brain-pi:dev" },
+                spec: { agentRef: agentName, sessionRef: sessionName, image: "ghcr.io/hades-dev/hades-brain:dev" },
                 status: { phase: "ready", podName: `brain-${agentName}-local` },
             });
         }

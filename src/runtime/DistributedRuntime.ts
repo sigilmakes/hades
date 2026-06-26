@@ -27,10 +27,9 @@ import type { HadesResource } from "../domain/resources.js";
 import { nameOf } from "../domain/resources.js";
 
 /**
- * Error raised by deploy-mode adapters that have not been wired yet. Kept so
- * tests and the P1–P4 work can assert the stub shape; the default distributed
- * runtime in P0 uses dev adapters to prove the shared kernel, so this is only
- * thrown when an adapter is explicitly injected as a stub.
+ * Error raised by deploy-mode adapters that have not been wired yet. The
+ * default distributed runtime uses dev adapters to prove the shared kernel,
+ * so this is only thrown when an adapter is explicitly injected as a stub.
  */
 export class NotImplementedError extends Error {
     readonly feature: string;
@@ -43,7 +42,7 @@ export class NotImplementedError extends Error {
 
 /**
  * The deploy-mode runtime: the same kernel as {@link LocalRuntime} but with
- * pod-backed adapters behind the same ports (D4). When a {@link KubeClient} is
+ * pod-backed adapters behind the same ports. When a {@link KubeClient} is
  * provided, reconcile also runs the {@link KubeController} to ensure native k8s
  * objects (Deployments for brains, PVCs for homes, CronJobs for schedules) —
  * the deploy-mode equivalent of the in-process {@link Reconciler}.
@@ -88,12 +87,10 @@ export class DistributedRuntime extends Runtime {
 }
 
 /**
- * Construct a deploy-mode runtime. P0: kernel services are wired against the
- * dev-mode stores/brain so the shared kernel is testable end-to-end; each
- * subsequent phase swaps a stub adapter for a real pod-backed one.
- *
- * Inject `brainDriverFactory`/`handsResolver`/`stateStore`/`eventStore` to
- * replace the defaults as phases land.
+ * Construct a deploy-mode runtime. Kernel services are wired against the
+ * sqlite stores and a brain-driver factory that prefers an HTTP brain pod
+ * when `HADES_BRAIN_URL` is set. Inject `brainDriverFactory`/`handsResolver`/
+ * `stateStore`/`eventStore` to override the defaults.
  */
 export async function createDistributedRuntime(dataDir: string, options: DistributedRuntimeOptions = {}): Promise<DistributedRuntime> {
     const state = options.stateStore ?? (await loadSqliteStateStore(dataDir));
@@ -132,10 +129,10 @@ class LocalHandsResolverAdapter implements HandsResolver {
 /**
  * Default brain factory for the distributed runtime.
  *
- * - If `HADES_BRAIN_URL` is set, route to a real brain pod via `HttpBrainDriver`
- *   (P1: the parent→brain wire). The pod owns the model loop.
+ * - If `HADES_BRAIN_URL` is set, route to a real brain pod via `HttpBrainDriver`.
+ *   The pod owns the model loop.
  * - Otherwise fall back to the dev adapters so the shared kernel is testable
- *   end-to-end without a pod. P1 tests that exercise the HTTP path set the env.
+ *   end-to-end without a pod. Tests that exercise the HTTP path set the env.
  */
 function defaultDistributedBrainFactory(
     events: EventStorePort,

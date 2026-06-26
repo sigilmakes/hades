@@ -10,28 +10,23 @@ import { McpHandsClient } from "../adapters/hands/McpHandsClient.js";
 /**
  * The brain pod HTTP server.
  *
- * Lifts the model/harness loop out of the parent process into its own pod
- * (P1). The brain pod embeds a pi SDK `AgentSession` — the *exact* code in
+ * Lifts the model/harness loop out of the parent process into its own pod.
+ * The brain pod embeds a pi SDK `AgentSession` — the *exact* code in
  * `PiSdkBrainDriver.run` — wrapped in an HTTP server exposing `POST /run`.
- * Tool calls route over HTTP to a hands endpoint (P1: `HttpHandsClient`;
- * P2: MCP Streamable HTTP). The model loop code does not change; only the
- * transport does.
+ * Tool calls route over HTTP to a hands endpoint (MCP Streamable HTTP by
+ * default). The model loop code does not change; only the transport does.
  *
- * Wire protocol (parent → brain), plain HTTP/JSON + SSE (D2):
- *   POST /run { agent, session, prompt }
- *     -> SSE stream: { type: "token", delta } ... { type: "done", reply }
- *     -> on error:   { type: "error", message }
- *
- * The parent is an orchestrator, not a tool client, so this is NOT MCP —
- * it's a thin run/stream wire. The brain→hands tool layer is the MCP path.
+ * Wire protocol (parent → brain): plain HTTP/JSON + SSE — the parent is an
+ * orchestrator, not a tool client, so this is a thin run/stream wire, not MCP.
+ * The brain→hands tool layer is the MCP path.
  */
 export class BrainPod {
     readonly server: http.Server;
     private readonly driver: BrainDriver;
 
     constructor(options: BrainPodOptions) {
-        // Prefer MCP Streamable HTTP (D2, the standards-aligned wire) when a hands
-        // URL is set; fall back to plain-HTTP hands for P1 compatibility.
+        // Prefer MCP Streamable HTTP (the standards-aligned wire) when a hands
+        // URL is set; fall back to plain-HTTP hands for compatibility.
         const hands = options.hands ?? defaultHandsFromEnv();
         const events = options.events ?? noopEventStore;
         const homeRoot = options.homeRoot ?? process.env.HADES_HOME_ROOT ?? "/home/agent";
@@ -89,9 +84,9 @@ function defaultDriver(mode: string, events: EventStorePort, hands: HandsBackend
 
 /**
  * A minimal test driver for the brain pod: interprets only the `!read`/`!write`/`!exec`
- * directives so P1 can prove tool calls route over HTTP to the hands endpoint.
- * Schedules and spawn are kernel-side concerns, not brain-pod concerns — the
- * full {@link TestBrainDriver} with those directives lives in the parent/dev mode.
+ * directives so tool calls route over HTTP to the hands endpoint. Schedules and
+ * spawn are kernel-side concerns, not brain-pod concerns — the full
+ * {@link TestBrainDriver} with those directives lives in the parent/dev mode.
  */
 class BrainPodTestDriver implements BrainDriver {
     readonly mode = "test";
@@ -164,7 +159,7 @@ const noopEventStore: EventStorePort = {
 };
 
 /**
- * Resolve the hands backend from env. Prefers MCP Streamable HTTP (D2) when
+ * Resolve the hands backend from env. Prefers MCP Streamable HTTP when
  * `HADES_HANDS_URL` is set; otherwise returns a stub that fails on use (not
  * on construction) so health/404 checks work without a hands endpoint.
  * Override by passing `hands` to {@link BrainPodOptions}.

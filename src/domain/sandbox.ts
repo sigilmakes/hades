@@ -1,12 +1,19 @@
 /**
  * Sandbox policy for Hands execution.
  *
- * The local prototype ships CONFINED_PROFILE because there is no real
- * isolation: interpreters, shell metacharacters, and secret-like env are
- * refused. A future container-backed Hands backend (gVisor/Kata/namespaces)
- * uses a permissive profile that allows bash/python/node under real
- * isolation. The brain and parser depend on the profile, not on hardcoded
- * constants, so the sandbox surface can change without touching orchestration.
+ * The profile is the policy; the {@link HandsBackend} adapter is the
+ * substrate. Two profiles ship:
+ *
+ * - {@link CONFINED_PROFILE} — no real isolation, so interpreters, shell
+ *   metacharacters, and secret-like env are refused. Used by
+ *   {@link LocalConfinedHands} (in-process hands with no boundary).
+ * - {@link PERMISSIVE_CONTAINER_PROFILE} — real isolation (a container), so
+ *   interpreters and shell metacharacters are allowed. Used by
+ *   {@link ContainerHands}.
+ *
+ * The brain and parser depend on the profile, not on hardcoded constants,
+ * so the sandbox surface changes by swapping the profile + adapter, never
+ * by touching orchestration.
  */
 export type SandboxProfile = {
     readonly id: string;
@@ -27,4 +34,18 @@ export const CONFINED_PROFILE: SandboxProfile = {
     allowShellMetachars: false,
     requireHomeRelativeExecutable: true,
     timeoutMs: 15000,
+};
+
+/**
+ * The permissive profile for container-backed hands: real isolation (a
+ * disposable container) is the boundary, so interpreters and shell
+ * metacharacters are safe. Used by {@link ContainerHands}.
+ */
+export const PERMISSIVE_CONTAINER_PROFILE: SandboxProfile = {
+    id: "permissive-container",
+    deniedInterpreters: new Set(),
+    denyEnvPatterns: [],
+    allowShellMetachars: true,
+    requireHomeRelativeExecutable: false,
+    timeoutMs: 30000,
 };

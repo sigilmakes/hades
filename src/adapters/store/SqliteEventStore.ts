@@ -5,7 +5,7 @@ import type { HadesEvent } from "../../domain/events.js";
 import type { EventStorePort } from "../../ports/EventStore.js";
 
 /**
- * A durable, queryable event store backed by SQLite on a PVC (P3).
+ * A durable, queryable event store backed by SQLite on a PVC.
  *
  * Append-only events table, indexed by `session_id` / `type` / `created_at`.
  * Satisfies {@link EventStorePort} — a drop-in replacement for
@@ -14,8 +14,8 @@ import type { EventStorePort } from "../../ports/EventStore.js";
  *
  * SQLite-on-PVC is the idiomatic local-k3s store (k3s itself uses sqlite for
  * its control plane). Postgres is the production target when multi-node or
- * high-write-volume demands it; because this is behind the port (D4), that
- * swap is an adapter change, not a rewrite.
+ * high-write-volume demands it; because this is behind the port, that swap is
+ * an adapter change, not a rewrite.
  *
  * Also exposes `subscribe` for stream consumers (projection store, brain-pod
  * wake-on-event). Subscribers receive events appended *after* subscription,

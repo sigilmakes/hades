@@ -115,7 +115,7 @@ const CATALOG: AgentOSPrimitive[] = [
         layer: "gateway",
         decision: "adopt",
         implementation: "runtime",
-        why: "Hades already models Listener attachments per agent/session, which avoids Wren hardcoding and lets gateways route many surfaces without being the agent identity.",
+        why: "Hades already models Listener attachments per agent/session, which avoids per-agent hardcoding and lets gateways route many surfaces without being the agent identity.",
         mapsToKinds: ["Listener"],
         relatedConcepts: ["future Gateway provider daemon"],
         sources: ["OpenClaw Gateway", "Hades Listener model"],

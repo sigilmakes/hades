@@ -1,28 +1,29 @@
 import { spawn } from "node:child_process";
-import { mkdir, writeFile, readFile, access } from "node:fs/promises";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import path from "node:path";
 import { type ToolResult } from "../../domain/resources.js";
 import type { ExecRequest, HandsBackend } from "../../ports/HandsBackend.js";
-import { CONFINED_PROFILE, type SandboxProfile } from "../../domain/sandbox.js";
+import { CONFINED_PROFILE, PERMISSIVE_CONTAINER_PROFILE, type SandboxProfile } from "../../domain/sandbox.js";
 import { HomePathPolicy } from "./HomePathPolicy.js";
 
 /**
- * A container-backed {@link HandsBackend} (the top sandbox rung, spec/15). Runs
- * `hades_read`/`hades_write`/`hades_exec` against the agent home, but `exec`
- * runs inside a disposable container (docker) with the home mounted read-write
- * and a **permissive** profile — because the container *is* the isolation
- * boundary, interpreters (bash/python/node) and shell metacharacters are safe.
+ * A container-backed {@link HandsBackend}: the top rung of the sandbox ladder.
  *
- * This is the sandbox ladder RLM uses (docker/modal/e2b/daytona) and the
- * "real isolation" backend the {@link CONFINED_PROFILE} comment has been
- * pointing at: a confined-local profile refuses interpreters because there is
- * no real isolation; a container-backed profile allows them under real
- * isolation. The {@link SandboxProfile} is the policy; the backend is the
- * substrate.
+ * `read` and `write` operate on the agent home directly (the home path policy
+ * still applies — path escapes are refused regardless of substrate). `exec`
+ * runs inside a **disposable container** with the home mounted read-write at
+ * `/home/agent`. Because the container *is* the isolation boundary, the
+ * {@link PERMISSIVE_CONTAINER_PROFILE} allows interpreters (bash/python/node)
+ * and shell metacharacters — the things {@link CONFINED_PROFILE} refuses
+ * because it has no real boundary.
  *
- * In deploy mode the hands pod *is* the container (k8s does the isolation);
- * this adapter is for dev-mode real-isolation hands and for a future
- * per-call container hands (gVisor/Kata).
+ * The sandbox profile is the policy; the backend adapter is the substrate.
+ * Swapping `LocalConfinedHands` for `ContainerHands` changes the isolation
+ * boundary without touching the brain, the parser, or the wire.
+ *
+ * In deploy mode the hands pod *is* the container (Kubernetes does the
+ * isolation via the pod boundary + NetworkPolicy); this adapter is for
+ * dev-mode real-isolation hands against a local docker daemon.
  */
 export class ContainerHands implements HandsBackend {
     readonly mode = "container";
@@ -49,8 +50,6 @@ export class ContainerHands implements HandsBackend {
     }
 
     async exec(request: ExecRequest): Promise<ToolResult> {
-        // Run inside a disposable container: home mounted read-write at /home/agent,
-        // working dir /home/agent, the permissive profile (interpreters allowed).
         const cwd = request.cwd ?? ".";
         const argv = ["/bin/sh", "-c", request.command];
         const args = [
@@ -69,15 +68,6 @@ export class ContainerHands implements HandsBackend {
         return runDocker(args, this.profile.timeoutMs);
     }
 }
-
-export const PERMISSIVE_CONTAINER_PROFILE: SandboxProfile = {
-    id: "permissive-container",
-    deniedInterpreters: new Set(),
-    denyEnvPatterns: [],
-    allowShellMetachars: true,
-    requireHomeRelativeExecutable: false,
-    timeoutMs: 30000,
-};
 
 export type ContainerHandsOptions = {
     homeRoot: string;
@@ -105,5 +95,4 @@ function runDocker(args: string[], timeoutMs: number): Promise<ToolResult> {
     });
 }
 
-// Re-export for tests that check the profile.
-export { CONFINED_PROFILE };
+export { CONFINED_PROFILE, PERMISSIVE_CONTAINER_PROFILE };

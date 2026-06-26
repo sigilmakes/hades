@@ -1,9 +1,9 @@
 {
   "apiVersion": "hades.dev/v1alpha1",
   "kind": "AgentClass",
-  "metadata": { "namespace": "agent-wren", "name": "resident-pi" },
+  "metadata": { "namespace": "agent-atlas", "name": "resident-pi" },
   "spec": {
-    "brainImage": "ghcr.io/sigilmakes/hades-brain-pi:dev",
+    "brainImage": "ghcr.io/hades-dev/hades-brain:dev",
     "allowedTools": ["read", "write", "bash", "os.createSchedule", "os.spawnAgent"],
     "defaultHandsPolicy": "home-sandbox"
   }
@@ -12,26 +12,27 @@
 {
   "apiVersion": "hades.dev/v1alpha1",
   "kind": "Agent",
-  "metadata": { "namespace": "agent-wren", "name": "wren" },
+  "metadata": { "namespace": "agent-atlas", "name": "atlas" },
   "spec": {
-    "displayName": "Wren",
+    "displayName": "Atlas",
     "classRef": "resident-pi",
-    "homeRef": "wren-home",
-    "defaultSession": "wren-default",
-    "desiredState": "active"
+    "homeRef": "atlas-home",
+    "defaultSession": "atlas-default",
+    "desiredState": "active",
+    "brain": { "mode": "test" }
   }
 }
 ---
 {
   "apiVersion": "hades.dev/v1alpha1",
   "kind": "Home",
-  "metadata": { "namespace": "agent-wren", "name": "wren-home" },
+  "metadata": { "namespace": "agent-atlas", "name": "atlas-home" },
   "spec": {
     "layout": { "create": ["vault", "bin", "cron.d", "projects", "skills", "inbox", "outbox"] },
     "files": [
       {
-        "path": "vault/00-wren/README.md",
-        "content": "# Wren\n\nThis is Wren's Hades userland seed. The kernel provides Agent/Home/Session/Brain/Hands/Listener/Schedule primitives; Wren owns the content here.\n"
+        "path": "vault/README.md",
+        "content": "# Atlas\n\nThis is Atlas's Hades userland. The kernel provides the Agent/Home/Session/Brain/Hands/Listener/Schedule primitives; Atlas owns the content here.\n"
       },
       {
         "path": "cron.d/morning-ritual.md",
@@ -40,10 +41,6 @@
       {
         "path": "cron.d/recess.md",
         "content": "Take a short recess: pick one small harmless creative or maintenance task in your own home and report what changed.\n"
-      },
-      {
-        "path": "bin/wren-brief.md",
-        "content": "# wren-brief\n\nSource sketch for a future Wren-owned briefing tool. In the local prototype, executable hands are confined and shell interpreters are rejected; Wren can still edit this into a permitted tool once a stronger Kubernetes sandbox backs execution.\n"
       }
     ]
   }
@@ -52,18 +49,18 @@
 {
   "apiVersion": "hades.dev/v1alpha1",
   "kind": "Listener",
-  "metadata": { "namespace": "agent-wren", "name": "wren-cli" },
-  "spec": { "agentRef": "wren", "platform": "cli", "routes": "default" }
+  "metadata": { "namespace": "agent-atlas", "name": "atlas-cli" },
+  "spec": { "agentRef": "atlas", "platform": "cli", "routes": "default" }
 }
 ---
 {
   "apiVersion": "hades.dev/v1alpha1",
   "kind": "Listener",
-  "metadata": { "namespace": "agent-wren", "name": "wren-discord" },
+  "metadata": { "namespace": "agent-atlas", "name": "atlas-discord" },
   "spec": {
-    "agentRef": "wren",
+    "agentRef": "atlas",
     "platform": "discord",
-    "secretRef": "wren-discord-token",
+    "secretRef": "atlas-discord-token",
     "routes": "default"
   }
 }
@@ -71,12 +68,12 @@
 {
   "apiVersion": "hades.dev/v1alpha1",
   "kind": "Schedule",
-  "metadata": { "namespace": "agent-wren", "name": "morning-ritual" },
+  "metadata": { "namespace": "agent-atlas", "name": "morning-ritual" },
   "spec": {
-    "agentRef": "wren",
+    "agentRef": "atlas",
     "type": "cron",
     "schedule": "0 7 * * *",
-    "session": "wren-default",
+    "session": "atlas-default",
     "promptRef": { "homePath": "cron.d/morning-ritual.md" },
     "prompt": "Good morning. Orient from the session log and vault, check schedules, and say hello."
   },
@@ -86,12 +83,12 @@
 {
   "apiVersion": "hades.dev/v1alpha1",
   "kind": "Schedule",
-  "metadata": { "namespace": "agent-wren", "name": "recess" },
+  "metadata": { "namespace": "agent-atlas", "name": "recess" },
   "spec": {
-    "agentRef": "wren",
+    "agentRef": "atlas",
     "type": "cron",
     "schedule": "45 10,14,18 * * *",
-    "session": "wren-default",
+    "session": "atlas-default",
     "promptRef": { "homePath": "cron.d/recess.md" },
     "prompt": "Take a short recess in your own home and report what changed."
   },
@@ -101,10 +98,10 @@
 {
   "apiVersion": "hades.dev/v1alpha1",
   "kind": "CapabilityGrant",
-  "metadata": { "namespace": "agent-wren", "name": "wren-self-management" },
+  "metadata": { "namespace": "agent-atlas", "name": "atlas-self-management" },
   "spec": {
-    "subject": { "kind": "Agent", "name": "wren" },
-    "capabilities": ["updateOwnHome", "createOwnTool", "createOwnSchedule", "spawnChildAgent"],
+    "subject": { "kind": "Agent", "name": "atlas" },
+    "capabilities": ["createOwnSchedule", "spawnAgent", "createHome", "emitArtifact"],
     "constraints": { "namespace": "own", "maxChildDepth": 2 }
   }
 }

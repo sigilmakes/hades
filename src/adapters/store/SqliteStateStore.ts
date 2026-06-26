@@ -5,7 +5,7 @@ import { emptyState, KINDS, resourceKey, type HadesKind, type HadesResource, typ
 import type { StateStorePort } from "../../ports/StateStore.js";
 
 /**
- * A durable state store backed by SQLite on a PVC (P3).
+ * A durable state store backed by SQLite on a PVC.
  *
  * A single `resources` table holds all Hades resources keyed by `kind` +
  * `namespace/name`, with the full resource JSON as the value. Satisfies

@@ -14,9 +14,12 @@ import type { ExecRequest } from "../ports/HandsBackend.js";
  *
  * The confinement logic is the *exact* code from `LocalConfinedHands` /
  * `HomePathPolicy` / `ConfinedCommandParser` / `src/domain/sandbox.ts`. MCP is
- * the transport; the sandbox profile is still what decides if `exec` is
- * allowed. A container-backed hands pod (future) swaps the profile, not the
- * wire.
+ * the transport; the sandbox profile decides whether `exec` is allowed. A
+ * container-backed hands pod swaps the profile (permissive under real
+ * isolation), not the wire.
+ *
+ * MCP is the brain→hands wire: Streamable HTTP, the standards-aligned
+ * single-endpoint JSON-RPC-over-HTTP-with-SSE.
  *
  * Runs **stateless** (no session ID) — each tool call is independent, which
  * suits disposable hands. Per the MCP stateless contract, a fresh transport is
@@ -27,9 +30,9 @@ import type { ExecRequest } from "../ports/HandsBackend.js";
  *
  * Mount point: `POST/GET/DELETE /mcp` (the MCP endpoint), plus `GET /healthz`.
  *
- * Home is mounted as a PVC (D3); the path is `HADES_HOME_ROOT` (default
- * `/home/agent`). Model credentials never live here (Managed Agents token
- * isolation).
+ * Home is mounted as a PVC; the path is `HADES_HOME_ROOT` (default
+ * `/home/agent`). Model credentials never live here (token isolation between
+ * the brain and hands).
  */
 export class HandsPod {
     readonly server: http.Server;

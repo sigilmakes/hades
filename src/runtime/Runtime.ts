@@ -22,8 +22,8 @@ import type { ProjectionService } from "../services/ProjectionService.js";
  * mode-agnostic: they depend on ports, never on concrete adapters. The mode
  * only changes which adapters satisfy the ports.
  *
- * This formalizes the dev/deploy mode split (D4): the simulation and the
- * distributed operator share one kernel; only the substrate differs.
+ * This formalizes the dev/deploy mode split: the local runtime and the
+ * distributed runtime share one kernel; only the substrate differs.
  */
 export abstract class Runtime {
     constructor(
@@ -76,9 +76,10 @@ export abstract class Runtime {
      * agent in the caller's namespace, runs the prompt once, reaps it, and
      * returns the reply. Like a daemon forking a transient unit.
      *
-     * This logic is mode-agnostic: it uses only port-level services. P6
-     * re-targets the *substrate* (the spawned agent becomes a real pod) but
-     * this method body is unchanged — the spawn syscall surface is stable.
+     * This logic is mode-agnostic: it uses only port-level services. The
+     * deploy runtime re-targets the *substrate* (the spawned agent becomes a
+     * real pod) but this method body is unchanged — the spawn syscall surface
+     * is stable.
      */
     async spawnAgent(subject: Partial<AgentSubject>, spec: Record<string, any>): Promise<{ agent: HadesResource; reply: string }> {
         const resolvedSubject = this.policy.resolveAgentSubject(subject);

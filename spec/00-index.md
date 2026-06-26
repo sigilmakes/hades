@@ -1,78 +1,85 @@
-# Hades Spec Index
+# Hades Spec
 
-Hades is an agent operating system on Kubernetes. It provides a small, boring kernel and lets rich agent userlands grow on top.
+Hades is a Kubernetes-native agent operating system. A small kernel supervises
+agent workloads — brains, hands, listeners — as disposable pods, while the
+durable state (sessions, homes, capabilities) survives every crash.
 
-## Hard Decisions
-
-1. **Kubernetes is mandatory.** Local development uses k3s/kind/k3d, not a bespoke daemon that later grows Kubernetes.
-2. **Hades is a control plane.** Pi, Discord, web, CLI, and CI are clients or runtime integrations, not the host.
-3. **Brains use the pi SDK.** Brain pods embed pi SDK sessions directly. RPC mode is for external clients, not the primary harness.
-4. **Brain and hands are separate.** Model/harness credentials never live in tool sandboxes.
-5. **Agents have userland.** Homes, tools, crons, skills, and vaults are mutable contents owned by agents.
-6. **Listeners are per-agent devices.** Agent A can have Discord+Matrix; Agent B can have Email+Discord; all are declared resources.
-7. **Schedules are first-class.** Self-authored cron/timer jobs are part of agent autonomy.
-8. **Session/event log is durable truth.** Model context, pod filesystems, projections, and dashboards are caches.
-9. **Self-modification is allowed through capabilities.** Agents may create schedules, tools, homes, child agents, and listeners only through policy-checked OS APIs.
-10. **The kernel stays boring.** Intelligence belongs in agents and system agents; controllers reconcile resources.
+These specs describe the system as it exists today. Each document is verified
+against the codebase; where something is planned but not built, it is marked
+**(planned)** and tracked as an issue.
 
 ## Documents
 
-- [`01-thesis.md`](01-thesis.md) — product thesis and rejection of hidden tool-call orchestration.
-- [`02-ontology.md`](02-ontology.md) — OS object model: agent, home, session, listener, schedule, hands, tools, capabilities.
-- [`03-kubernetes-model.md`](03-kubernetes-model.md) — namespaces, CRDs, controllers, pods, volumes, and object graph.
-- [`04-brain-and-session.md`](04-brain-and-session.md) — pi SDK brain pods, durable logs, wake/sleep, context management.
-- [`05-hands-and-tools.md`](05-hands-and-tools.md) — disposable hands, sandbox execution, tool routing, custom tools.
-- [`06-listeners-and-io.md`](06-listeners-and-io.md) — per-agent Discord/Matrix/email/web/CLI listeners and routing.
-- [`07-schedules-and-userland.md`](07-schedules-and-userland.md) — cron, agent homes, self-modification, Wren-style userland.
-- [`08-control-plane.md`](08-control-plane.md) — API server, controllers, scheduler, event/projection stores.
-- [`09-security-and-policy.md`](09-security-and-policy.md) — capabilities, secrets, RBAC, network policy, approvals, audit.
-- [`10-protocols-and-apis.md`](10-protocols-and-apis.md) — ACP/A2A compatibility, Hades APIs, syscalls, event schemas.
-- [`11-ui-ux.md`](11-ui-ux.md) — control-room UX, direct agent rooms, listener/hands/schedule views.
-- [`12-system-agents.md`](12-system-agents.md) — provisioner, janitor, auditor, librarian, backup, and recursive agents.
-- [`13-v0-loop.md`](13-v0-loop.md) — smallest end-to-end loop that proves Hades should exist.
-- [`14-build-vs-borrow.md`](14-build-vs-borrow.md) — what Hades builds, borrows, and avoids.
-- [`15-agentos-primitives.md`](15-agentos-primitives.md) — useful OS/gateway/tool/workflow primitives versus noise.
+- [`01-thesis.md`](01-thesis.md) — what Hades is and what it provides.
+- [`02-architecture.md`](02-architecture.md) — the kernel, the two runtimes, and the object graph.
+- [`03-resources.md`](03-resources.md) — the custom resources and their schemas.
+- [`04-brain-and-session.md`](04-brain-and-session.md) — brain pods, the durable session log, wake/sleep.
+- [`05-hands-and-tools.md`](05-hands-and-tools.md) — hands pods, the sandbox ladder, the MCP tool wire.
+- [`06-listeners.md`](06-listeners.md) — per-agent I/O devices and the bridge contract.
+- [`07-schedules.md`](07-schedules.md) — cron/interval/once timers as first-class resources.
+- [`08-control-plane.md`](08-control-plane.md) — the API server, the reconciler, the k8s controller.
+- [`09-security.md`](09-security.md) — capabilities, approvals, network policy, credential isolation.
+- [`10-syscalls.md`](10-syscalls.md) — the `os.*` capability-checked syscall surface.
+- [`11-system-agents.md`](11-system-agents.md) — provisioner, janitor, auditor.
+- [`12-projections.md`](12-projections.md) — derived views over durable state and events.
 
-## One-Screen Architecture
+## One-screen architecture
 
-```text
-                         ┌────────────────────────────────────┐
-                         │ Humans / Apps / CI / Agents        │
-                         │ web tui cli discord matrix email   │
-                         └──────────────────┬─────────────────┘
-                                            │
-                                            v
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                              HADES KERNEL                                    │
-│                                                                              │
-│  API Server        Controllers        Scheduler        Event Store           │
-│  ACP/Hades APIs    reconcile CRDs     placement       durable truth          │
-│                                                                              │
-│  Secret Broker     Policy Engine      Projection Bus   System Agents         │
-│  no raw sandbox    capabilities       UI state         provision/janitor     │
-└──────────┬────────────────┬────────────────┬─────────────────────┬──────────┘
-           │                │                │                     │
-           v                v                v                     v
-┌────────────────┐  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐
-│ Brain Pods     │  │ Hands Pods     │  │ Listener Pods  │  │ Home PVCs      │
-│ pi SDK loops   │  │ sandboxes      │  │ Discord/email  │  │ vault/bin/cron │
-│ no tool creds  │  │ no brain creds │  │ per agent      │  │ userland       │
-└────────────────┘  └────────────────┘  └────────────────┘  └────────────────┘
+```mermaid
+flowchart TB
+    subgraph clients["Clients"]
+        H[Humans / Apps / CI]
+        CLI["hades CLI / attach"]
+    end
+
+    subgraph kernel["Hades kernel"]
+        API["API server<br/>/hades/v1"]
+        REC["Reconciler<br/>in-process"]
+        CTRL["KubeController<br/>CRDs → native objects"]
+        POL["PolicyService<br/>capabilities"]
+        SYS["SyscallService<br/>os.*"]
+        PROJ["Projections<br/>read views"]
+    end
+
+    subgraph stores["Durable state"]
+        STATE["StateStore<br/>json / sqlite"]
+        EVENTS["EventStore<br/>jsonl / sqlite"]
+        HOMES["Home PVCs<br/>vault/bin/cron.d"]
+    end
+
+    subgraph pods["Agent workloads (cattle)"]
+        BRAIN["Brain pod<br/>pi SDK + model loop"]
+        HANDS["Hands pod<br/>MCP server, sandbox"]
+        LISTENER["Listener pod<br/>platform bridge"]
+    end
+
+    H --> API
+    CLI --> API
+    API --> REC
+    API --> SYS
+    API --> PROJ
+    REC --> CTRL
+    SYS --> POL
+    CTRL --> BRAIN
+    CTRL --> HANDS
+    CTRL --> LISTENER
+    BRAIN -->|MCP tools| HANDS
+    HANDS --> HOMES
+    BRAIN --> EVENTS
+    REC --> STATE
+    REC --> EVENTS
+    CTRL --> STATE
 ```
 
-## First Prototype Definition of Done
+## Hard decisions
 
-```text
-[ ] local k3s/kind install from a clean machine
-[ ] Hades API exposes /agents, /runs, /sessions, /events, /approvals
-[ ] one Agent resource creates/wakes a pi SDK brain pod
-[ ] one Home resource mounts persistent vault/bin/cron.d into approved hands
-[ ] one Listener resource attaches Discord or CLI to one agent
-[ ] one Schedule resource fires a prompt into one agent
-[ ] brain calls bash/read/write through a hands pod, not locally
-[ ] brain crash recovers from session log
-[ ] hands crash becomes a tool error, not agent death
-[ ] human can directly message a selected agent
-[ ] agent can create a new schedule through a policy-checked syscall
-[ ] all state is inspectable via Hades API and kubectl
-```
+1. **Kubernetes is mandatory.** Local dev uses real k8s shape (k3s/kind); there is no bespoke single-process production path.
+2. **Hades is a control plane.** The CLI, listeners, and brains are clients or workloads — not the host.
+3. **Brains use the pi SDK in-process.** A brain pod embeds an SDK session; it does not spawn an RPC harness inside a sandbox.
+4. **Brain and hands are separate.** Model credentials never live in tool sandboxes.
+5. **Agents have userland.** Homes are mutable, persistent, agent-owned filesystems.
+6. **Listeners are per-agent devices.** An agent may have several; they are not tools.
+7. **Schedules are first-class.** Agent-authored timers are part of autonomy.
+8. **The session/event log is durable truth.** Context windows and projections are caches.
+9. **Self-modification goes through capabilities.** Agents create schedules, tools, listeners, and children only through checked `os.*` syscalls.
+10. **The kernel stays boring.** Intelligence belongs in agents; controllers reconcile resources.

@@ -5,15 +5,15 @@ import type { ExecRequest, HandsBackend } from "../../ports/HandsBackend.js";
 
 /**
  * A {@link HandsBackend} that calls a hands pod's tools over MCP Streamable
- * HTTP (D2). This is the standards-aligned replacement for the in-process
- * `LocalConfinedHands` in deploy mode.
+ * HTTP — the standards-aligned brain→hands wire. This is the deploy-mode
+ * replacement for the in-process `LocalConfinedHands`.
  *
  * The client is lazy: it connects on first use and reuses the session. The
  * hands pod exposes `hades_read`/`hades_write`/`hades_exec` as MCP tools; this
  * client maps the {@link HandsBackend} interface onto `tools/call`.
  *
  * `HADES_HANDS_URL` (or the constructor arg) is the hands pod MCP endpoint,
- * e.g. `http://hands-wren.hades.svc.cluster.local/mcp`.
+ * e.g. `http://hands-atlas.hades.svc.cluster.local/mcp`.
  */
 export class McpHandsClient implements HandsBackend {
     readonly mode = "mcp";

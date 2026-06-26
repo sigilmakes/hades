@@ -1,164 +1,97 @@
 # 08 — Control Plane
 
-Hades is a control plane. It owns desired state, lifecycle, routing, policy, and observability.
+Hades is a control plane. It owns desired state, lifecycle, routing, policy,
+and observability.
 
 ## Components
 
-```text
-┌────────────────────────────────────────────────────────────────────────────┐
-│ HADES CONTROL PLANE                                                        │
-│                                                                            │
-│ API Server        Controller Manager        Scheduler                      │
-│ Event Store       Projection Store          Secret Broker                  │
-│ Policy Engine     Artifact Store            System Agents                  │
-└────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph api["API"]
+        S["HTTP server<br/>/hades/v1"]
+    end
+    subgraph rec["Reconciler"]
+        R["Reconciler<br/>in-process convergence"]
+        KC["KubeController<br/>CRDs → native objects"]
+    end
+    subgraph svc["Services"]
+        AG["Agent · Home"]
+        MS["Message · Schedule"]
+        PL["Policy · Syscall"]
+        PR["Projection"]
+        SA["SystemAgents"]
+    end
+    subgraph store["Stores"]
+        ST["StateStore"]
+        ET["EventStore"]
+    end
+    S --> svc
+    S --> R
+    R --> KC
+    svc --> ST
+    svc --> ET
+    KC --> store
 ```
 
-## API Server
+## API server
 
-Exposes:
+Stateless HTTP/JSON. Exposes management endpoints, syscall endpoints, and
+projection reads. See [`10-syscalls.md`](10-syscalls.md) for the syscall
+surface and [`12-projections.md`](12-projections.md) for read views.
 
-```text
-ACP/A2A-compatible agent endpoints
-Hades management APIs
-OS syscalls for agents
-WebSocket/SSE streams
-UI projections
-authn/authz enforcement
+## Reconciler
+
+The in-process reconciler converges desired state. On each `reconcile()` pass:
+
+1. bootstraps system agents (`SystemAgents`)
+2. reconciles homes (creates PVCs / layouts)
+3. reconciles agents (ensures sessions + brain bindings)
+4. reconciles listeners (marks connected / waiting-for-secret)
+5. fires due schedules
+6. persists state
+
+In distributed mode, a `KubeController` runs after the in-process reconcile
+and re-targets the same semantics at the Kubernetes API.
+
+## KubeController
+
+Watches Hades resources and reconciles them into native k8s objects via a
+`KubeClient`:
+
+```mermaid
+flowchart LR
+    H["Hades resource"] --> CTRL["KubeController"]
+    CTRL --> K["KubeClient"]
+    K --> NAT["native k8s objects"]
 ```
 
-It should be stateless except open streams.
+| Hades resource | Native objects |
+|----------------|----------------|
+| `Home` | `PersistentVolumeClaim` (`home-<name>`) |
+| `Agent` (active) | brain `Deployment` + `Service`; model creds from a `Secret` via `envFrom` |
+| `Agent` (ephemeral, completed) | cascade-delete brain/hands pods (via `ownerReferences`) |
+| `Hands` | hands `Deployment` + `Service` + `NetworkPolicy` (brain→hands only) |
+| `Schedule` (cron/interval) | `CronJob` (`sched-<name>`) |
+| `CapabilityGrant` | logical policy (NetworkPolicy projection is follow-on work) |
 
-## Controller Manager
+Controllers write `status.phase` back to the resource — `kubectl get agents`
+shows phase. `ownerReferences` make garbage collection native k8s: a deleted
+agent's brain/hands pods disappear via ownership, not a Hades GC loop.
 
-Controllers reconcile CRDs into pods, PVCs, services, policies, and events.
-
-```text
-observe actual state
-compare desired state
-take idempotent action
-emit event
-update status
-repeat
-```
-
-## Scheduler
-
-The Hades scheduler decides logical placement, not node placement.
-
-Inputs:
+## Stores
 
 ```text
-agent class
-model policy
-hands requirements
-home/workspace locality
-capabilities
-budget
-cluster load
-listener/session state
+StateStore   json (local) · sqlite-on-PVC (distributed, Postgres target)
+EventStore   jsonl (local) · sqlite-on-PVC (distributed)
 ```
 
-Outputs:
+Both are behind ports; swapping the substrate is an adapter change. SQLite on
+a PVC is the idiomatic local-k3s store (k3s itself uses SQLite for its control
+plane).
 
-```text
-brain binding
-hands selection/provisioning
-workspace binding
-policy projections
-budget reservation
-```
+## Node-count-agnostic
 
-## Event Store
-
-Requirements:
-
-```text
-append-only raw events
-ordered per session
-query by session/run/agent/type/time
-stream subscribers
-durable backups
-never lose raw events when projections change
-```
-
-Prototype can use Postgres. SQLite-on-PVC is acceptable only for throwaway local experiments.
-
-## Projection Store
-
-The UI should not replay every raw event on every frame. Maintain projections:
-
-```text
-AgentTree
-RunSummary
-ActivityTail
-ApprovalQueue
-ListenerStatus
-ScheduleStatus
-HandsSummary
-HomeSummary
-CostSummary
-```
-
-Raw events remain authoritative.
-
-## OS Syscall Layer
-
-Agents should not patch raw Kubernetes YAML by default. They call typed Hades APIs:
-
-```text
-os.createSchedule
-os.updateHomeFile
-os.createTool
-os.spawnAgent
-os.attachListener
-os.createHands
-os.requestApproval
-os.emitArtifact
-```
-
-The syscall layer validates capabilities and writes CRDs/events.
-
-## Reconciliation Example
-
-```text
-Agent/wren desiredState=active
-  -> AgentController creates BrainBinding
-  -> BrainController creates Pod/brain-wren
-  -> brain emits brain.woke
-  -> projection updates AgentTree
-```
-
-## Sleeping and Waking
-
-Agents can be addressable without live brains.
-
-```text
-message arrives for sleeping agent
-  -> append message.received
-  -> create BrainBinding
-  -> brain wakes from session log
-```
-
-## Garbage Collection
-
-Never silently remove:
-
-```text
-raw event logs
-retained artifacts
-homes
-workspaces with unmerged changes
-audit records
-pending approvals
-```
-
-TTL candidates:
-
-```text
-idle brain pods
-idle hands pods
-ephemeral workspaces after successful artifact extraction
-old projections
-completed runs after retention snapshot
-```
+The controller uses only standard Kubernetes API objects — no `hostPath`, no
+bare host processes, no `localhost:` ports, no node pinning. k3s **is**
+Kubernetes, so single-node → multi-node is a StorageClass swap, never a code
+change.

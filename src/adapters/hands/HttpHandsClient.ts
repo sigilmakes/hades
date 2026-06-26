@@ -3,17 +3,14 @@ import type { ExecRequest, HandsBackend } from "../../ports/HandsBackend.js";
 
 /**
  * A {@link HandsBackend} that routes `hades_read`/`hades_write`/`hades_exec` to
- * a hands endpoint over HTTP. Used by a brain pod (P1) to reach its hands pod
- * before the MCP Streamable HTTP wire (P2) is wired — and kept as a plain-HTTP
- * fallback thereafter.
+ * a hands endpoint over plain HTTP/JSON (`POST /read`, `/write`, `/exec`).
  *
- * The transport is plain HTTP/JSON (POST /read, /write, /exec). P2 replaces
- * this with `McpHandsClient` (MCP Streamable HTTP) as the standards-aligned
- * wire; this client exists so the brain pod can run end-to-end in P1 without
- * depending on the MCP SDK landing first.
+ * Kept as a simple fallback to the MCP Streamable HTTP wire (`McpHandsClient`).
+ * The brain pod prefers MCP by default; this client is useful for diagnostics
+ * and environments without the MCP SDK.
  *
  * `HADES_HANDS_URL` (or the constructor arg) is the hands pod base URL, e.g.
- * `http://hands-wren.hades.svc.cluster.local`.
+ * `http://hands-atlas.hades.svc.cluster.local`.
  */
 export class HttpHandsClient implements HandsBackend {
     readonly mode = "http";

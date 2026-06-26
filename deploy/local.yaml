@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: hades-api
-          image: ghcr.io/sigilmakes/hades:dev
+          image: ghcr.io/hades-dev/hades:dev
           command: ["node", "dist/cli.js", "serve", "7347"]
           ports:
             - containerPort: 7347
@@ -32,4 +32,7 @@ spec:
               mountPath: /var/lib/hades
       volumes:
         - name: data
-          emptyDir: {}
+          # Single-node dev. For multi-node, swap this PVC to a shared
+          # StorageClass (longhorn/nfs/cephfs) — see deploy/README.md.
+          persistentVolumeClaim:
+            claimName: hades-data

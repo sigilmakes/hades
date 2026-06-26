@@ -4,7 +4,7 @@ import type { StateStorePort } from "../ports/StateStore.js";
 import type { EventStorePort } from "../ports/EventStore.js";
 
 /**
- * The deploy-mode controller (P4). Watches Hades resources and reconciles them
+ * The deploy-mode controller. Watches Hades resources and reconciles them
  * into native k8s objects via a {@link KubeClient}:
  *
  * - `Agent` (desiredState=active) → brain `Deployment` + `Service`
@@ -38,7 +38,7 @@ export class KubeController {
         for (const schedule of this.state.list("Schedule")) await this.reconcileSchedule(schedule);
     }
 
-    /** Home → PVC (StorageClass-swap per D3). */
+    /** Home → PVC (StorageClass left to the cluster default). */
     async reconcileHome(home: HadesResource): Promise<void> {
         const ns = namespaceOf(home);
         const name = nameOf(home);
@@ -102,7 +102,7 @@ export class KubeController {
                     spec: {
                         containers: [{
                             name: "brain",
-                            image: agent.spec?.brain?.image ?? "ghcr.io/sigilmakes/hades-brain:dev",
+                            image: agent.spec?.brain?.image ?? "ghcr.io/hades-dev/hades-brain:dev",
                             ports: [{ containerPort: 7349 }],
                             env: brainEnv,
                             // Model credentials are mounted as a Secret envFrom, never into hands.
@@ -151,7 +151,7 @@ export class KubeController {
                     spec: {
                         containers: [{
                             name: "hands",
-                            image: hands.spec?.image ?? "ghcr.io/sigilmakes/hades-hands:dev",
+                            image: hands.spec?.image ?? "ghcr.io/hades-dev/hades-hands:dev",
                             ports: [{ containerPort: 7350 }],
                             env: [{ name: "HADES_HOME_ROOT", value: "/home/agent" }],
                             volumeMounts: [{ name: "home", mountPath: "/home/agent" }],
@@ -218,7 +218,7 @@ export class KubeController {
                             spec: {
                                 containers: [{
                                     name: "trigger",
-                                    image: "ghcr.io/sigilmakes/hades-cli:dev",
+                                    image: "ghcr.io/hades-dev/hades-cli:dev",
                                     command: ["node", "dist/cli.js", "say", `${ns}/${agentName}`, schedule.spec?.prompt ?? "scheduled"],
                                 }],
                                 restartPolicy: "OnFailure",
