@@ -64,6 +64,8 @@ export class HadesRuntime extends Runtime {
     override async init(): Promise<this> {
         await this.state.init();
         await this.events.init();
+        // Start the projection store: replay the durable log + subscribe.
+        await this.projections.start();
         return this;
     }
 

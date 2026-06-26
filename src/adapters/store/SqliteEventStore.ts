@@ -86,17 +86,10 @@ export class SqliteEventStore implements EventStorePort {
     }
 
     /** Subscribe to events appended after subscription. Returns an unsubscribe fn. */
-    subscribe(_sessionId: string | undefined, _filter?: { type?: string }): (event: HadesEvent) => void {
-        // Simple broadcast subscribers; per-session/type filtering is applied here.
-        const filterSession = _sessionId;
-        const filterType = _filter?.type;
-        const subscriber = (event: HadesEvent) => {
-            if (filterSession && event.sessionId !== filterSession) return;
-            if (filterType && event.type !== filterType) return;
-        };
-        this.subscribers.push(subscriber);
+    subscribe(handler: (event: HadesEvent) => void): () => void {
+        this.subscribers.push(handler);
         return () => {
-            this.subscribers = this.subscribers.filter((s) => s !== subscriber);
+            this.subscribers = this.subscribers.filter((s) => s !== handler);
         };
     }
 

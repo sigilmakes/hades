@@ -115,3 +115,22 @@ test("projection API endpoints return the views", async () => {
         await new Promise((resolve) => server.close(resolve));
     }
 });
+
+test("projection store is maintained on event subscribe (incremental, no re-list)", async () => {
+    const { runtime } = await fixture();
+    // start() already ran in init; the activity buffer is seeded + subscribed.
+    const beforeCount = (await runtime.projections.activityTail(undefined, 1000)).length;
+    await runtime.messageAgent(`${NS}/${AGENT}`, "!write vault/proj-inc.md <<<incremental");
+    const after = await runtime.projections.activityTail(undefined, 1000);
+    assert.ok(after.length > beforeCount, "activity grew via the subscriber, not a re-list");
+    assert.ok(after.some((e) => e.type === "home.file.written" && e.summary.includes("proj-inc.md")));
+});
+
+test("projection store survives a restart (rebuilt from the durable log)", async () => {
+    const { dir, runtime } = await fixture();
+    await runtime.messageAgent(`${NS}/${AGENT}`, "!write vault/proj-dur.md <<<survives");
+    const { createRuntime } = await import("../dist/runtime/HadesRuntime.js");
+    const rt2 = await (await createRuntime(dir)).init();
+    const tail = await rt2.projections.activityTail(undefined, 1000);
+    assert.ok(tail.some((e) => e.type === "home.file.written" && e.summary.includes("proj-dur.md")), "activity rebuilt from durable log");
+});

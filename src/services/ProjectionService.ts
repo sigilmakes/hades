@@ -10,15 +10,35 @@ import { nameOf, namespaceOf } from "../domain/resources.js";
  *
  * Raw events remain authoritative (docs/control-plane.md invariant). Projections are caches.
  *
- * Today this is a synchronous read over the in-memory state mirror + event log
- * (cheap, always-fresh). A background projection store (maintained on event
- * subscribe) is the production target; the query surface is stable either way.
+ * `agentTree`/`runSummaries`/`approvalQueue`/etc. read the in-memory state mirror
+ * (always fresh, cheap). `activityTail` is backed by an {@link ActivityProjection}
+ * maintained on event subscribe — a bounded ring buffer rebuilt from the durable
+ * log on init, then incrementally updated as events arrive. Reads are O(1).
  */
 export class ProjectionService {
+    private readonly activity: ActivityProjection;
+
     constructor(
         private readonly state: StateStorePort,
         private readonly events: EventStorePort,
-    ) {}
+    ) {
+        this.activity = new ActivityProjection(200);
+    }
+
+    /**
+     * Start the projection store: replay the durable event log into the activity
+     * buffer, then subscribe to keep it incrementally updated. Idempotent.
+     */
+    async start(): Promise<void> {
+        if (this.started) return;
+        const all = await this.events.list();
+        this.activity.seed(all);
+        this.events.subscribe?.((event) => this.activity.push(event));
+        this.started = true;
+    }
+
+    private started = false;
+
 
     /** Agent tree: every agent with its phase, lifecycle, brain/hands pod names. */
     agentTree(namespace?: string): AgentTreeNode[] {
@@ -35,8 +55,12 @@ export class ProjectionService {
 
     /** Recent activity: the last N events across all (or one) session. */
     async activityTail(sessionId: string | undefined, limit = 50): Promise<ActivityEntry[]> {
-        const events = await this.events.list(sessionId);
-        return events.slice(-limit).map((e) => ({
+        // Read from the projection store when started (O(1)); fall back to a
+        // durable-log replay otherwise (always-fresh, but O(n)).
+        const events = this.started
+            ? this.activity.tail(sessionId, limit)
+            : (await this.events.list(sessionId)).slice(-limit);
+        return events.map((e) => ({
             id: e.id,
             session: e.sessionId,
             type: e.type,
@@ -189,5 +213,35 @@ function summarize(type: string, payload: Record<string, any>): string {
         case "syscall.audited": return `${payload.who} -> ${payload.capability}`;
         case "system-agent.created": return `system agent ${payload.agent}`;
         default: return type;
+    }
+}
+
+/**
+ * A bounded ring buffer of recent events, maintained on event subscribe. Seed
+ * from the durable log on start; push incrementally as events arrive. Reads are
+ * O(limit) with no durable-log replay.
+ */
+class ActivityProjection {
+    private events: import("../domain/events.js").HadesEvent[] = [];
+
+    constructor(private readonly capacity: number) {}
+
+    /** Replay the durable log into the buffer (called once on start). */
+    seed(all: import("../domain/events.js").HadesEvent[]): void {
+        this.events = all.slice(-this.capacity);
+    }
+
+    /** Push an appended event (called from the event-store subscriber). */
+    push(event: import("../domain/events.js").HadesEvent): void {
+        this.events.push(event);
+        if (this.events.length > this.capacity) this.events.shift();
+    }
+
+    /** Return the last `limit` events, optionally filtered by session. */
+    tail(sessionId: string | undefined, limit: number): import("../domain/events.js").HadesEvent[] {
+        const filtered = sessionId
+            ? this.events.filter((e) => e.sessionId === sessionId)
+            : this.events;
+        return filtered.slice(-limit);
     }
 }
