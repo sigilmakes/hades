@@ -1,5 +1,5 @@
 import { nameOf, namespaceOf, type HadesResource } from "../domain/resources.js";
-import { hadesLabels, type KubeClient, type KubeObject } from "../ports/KubeClient.js";
+import { hadesLabels, HADES_FINALIZER, type KubeClient, type KubeObject } from "../ports/KubeClient.js";
 import type { StateStorePort } from "../ports/StateStore.js";
 import type { EventStorePort } from "../ports/EventStore.js";
 
@@ -52,10 +52,41 @@ export class KubeController {
                 const ns = namespaceOf(resource);
                 const name = nameOf(resource);
                 const existing = await this.kube.get(ns, kind, name);
-                if (existing?.metadata?.uid) continue;
-                await this.kube.ensure(ns, { apiVersion: "hades.dev/v1alpha1", kind, metadata: { name, namespace: ns, labels: hadesLabels(resource) }, spec: resource.spec ?? {} });
+                if (existing?.metadata?.uid) {
+                    // Already exists: if it's being deleted, run finalization; otherwise
+                    // ensure the finalizer is present (in case an older object predates it).
+                    if (existing.metadata.deletionTimestamp) {
+                        await this.finalizeResource(ns, kind, name);
+                    } else if (!existing.metadata.finalizers?.includes(HADES_FINALIZER)) {
+                        await this.kube.patchMetadata(ns, kind, name, { finalizers: [HADES_FINALIZER] });
+                    }
+                    continue;
+                }
+                await this.kube.ensure(ns, { apiVersion: "hades.dev/v1alpha1", kind, metadata: { name, namespace: ns, labels: hadesLabels(resource), finalizers: [HADES_FINALIZER] }, spec: resource.spec ?? {} });
             }
         }
+    }
+
+    /**
+     * Finalize a Hades CRD that k8s is deleting (deletionTimestamp set). Runs
+     * any cleanup that needs the object to still exist (record an event,
+     * delete owned native objects not covered by ownerReferences), then
+     * removes the finalizer so k8s completes the deletion.
+     */
+    private async finalizeResource(namespace: string, kind: string, name: string): Promise<void> {
+        // Clean up owned native objects explicitly — ownerReferences cascade most,
+        // but being explicit survives missing/incorrect refs and lets us record an event.
+        if (kind === "Agent") {
+            await this.kube.delete(namespace, "Deployment", `brain-${name}`);
+            await this.kube.delete(namespace, "Service", `brain-${name}`);
+            await this.kube.delete(namespace, "Deployment", `hands-${name}`);
+            await this.kube.delete(namespace, "Service", `hands-${name}`);
+        } else if (kind === "Home") {
+            await this.kube.delete(namespace, "PersistentVolumeClaim", `home-${name}`);
+        }
+        await this.events.append("system", `${kind.toLowerCase()}.finalized`, { kind, name, namespace });
+        // Remove the finalizer — k8s then completes the deletion.
+        await this.kube.patchMetadata(namespace, kind, name, { finalizers: [] });
     }
 
     /**
@@ -73,10 +104,17 @@ export class KubeController {
         return { apiVersion: "hades.dev/v1alpha1", kind: resource.kind, name, uid, blockOwnerDeletion: true, controller: true };
     }
 
+    /** True if the CRD has a deletionTimestamp (k8s is deleting it; finalize runs). */
+    private async isDeleting(namespace: string, kind: string, name: string): Promise<boolean> {
+        const existing = await this.kube.get(namespace, kind, name);
+        return Boolean(existing?.metadata?.deletionTimestamp);
+    }
+
     /** Home → PVC (StorageClass left to the cluster default). */
     async reconcileHome(home: HadesResource): Promise<void> {
         const ns = namespaceOf(home);
         const name = nameOf(home);
+        if (await this.isDeleting(ns, "Home", name)) return; // finalizeResource handles cleanup
         const pvc: KubeObject = {
             apiVersion: "v1",
             kind: "PersistentVolumeClaim",
@@ -100,6 +138,7 @@ export class KubeController {
     async reconcileAgent(agent: HadesResource): Promise<void> {
         const ns = namespaceOf(agent);
         const name = nameOf(agent);
+        if (await this.isDeleting(ns, "Agent", name)) return; // finalizeResource handles cleanup
         const desired = agent.spec?.desiredState ?? "active";
         const lifecycle = agent.spec?.lifecycle ?? "resident";
         const completed = agent.status?.phase === "completed";
@@ -170,7 +209,10 @@ export class KubeController {
     async reconcileHands(hands: HadesResource): Promise<void> {
         const ns = namespaceOf(hands);
         const name = nameOf(hands);
+        if (await this.isDeleting(ns, "Hands", name)) return; // finalizeResource handles cleanup
         const agentName = hands.spec?.agentRef ?? name.replace(/-home-shell$/, "");
+        // Skip hands whose agent is being deleted — the agent's finalize cleans up its brain+hands.
+        if (agentName && await this.isDeleting(ns, "Agent", agentName)) return;
         // Skip hands whose agent is a reaped ephemeral — the agent cascade handles deletion.
         const agent = this.state.findByName("Agent", agentName, ns);
         if (agent?.spec?.lifecycle === "ephemeral" && agent?.status?.phase === "completed") {
@@ -268,6 +310,7 @@ export class KubeController {
     async reconcileSchedule(schedule: HadesResource): Promise<void> {
         const ns = namespaceOf(schedule);
         const name = nameOf(schedule);
+        if (await this.isDeleting(ns, "Schedule", name)) return; // finalizeResource handles cleanup
         const type = schedule.spec?.type;
         if (type !== "cron" && type !== "interval") {
             // once schedules are delivered in-process by the kernel; not a CronJob.

@@ -64,6 +64,21 @@ export class KubeClientNode implements KubeClient {
         }
     }
 
+    async patchMetadata(namespace: string, kind: string, name: string, patch: Record<string, unknown>): Promise<void> {
+        // Native objects: strategic-merge patch of metadata.
+        if (kind === "Deployment") { await this.apps.patchNamespacedDeployment({ name, namespace, body: { metadata: patch } }); return; }
+        if (kind === "Service") { await this.core.patchNamespacedService({ name, namespace, body: { metadata: patch } }); return; }
+        if (kind === "PersistentVolumeClaim") { await this.core.patchNamespacedPersistentVolumeClaim({ name, namespace, body: { metadata: patch } }); return; }
+        if (kind === "CronJob") { await this.batch.patchNamespacedCronJob({ name, namespace, body: { metadata: patch } }); return; }
+        if (kind === "NetworkPolicy") { await this.networking.patchNamespacedNetworkPolicy({ name, namespace, body: { metadata: patch } }); return; }
+        // Hades CRDs: strategic-merge patch via customObjects.
+        const plural = pluralize(kind);
+        await this.customObjects.patchNamespacedCustomObject({
+            group: "hades.dev", version: "v1alpha1", namespace, plural, name,
+            body: { metadata: patch },
+        });
+    }
+
     async list(namespace: string, kind: string): Promise<KubeObject[]> {
         const result = await this.listByKind(namespace, kind);
         return (result?.items ?? []) as KubeObject[];
