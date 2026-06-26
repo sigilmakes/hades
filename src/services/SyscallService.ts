@@ -129,6 +129,21 @@ export class SyscallService {
         return approval?.status?.phase === "approved";
     }
 
+    /**
+     * Operator-level approval response (no agent subject). Used by the web
+     * console / API to let a human act on an approval without minting an
+     * agent identity. Records the decision as decidedBy 'operator'.
+     */
+    async respondApprovalAsOperator(namespace: string, name: string, decision: "approve" | "deny", note?: string): Promise<HadesResource> {
+        const approval = this.state.findByName("Approval", name, namespace);
+        if (!approval) throw new Error(`Approval ${namespace}/${name} not found`);
+        if (approval.status?.phase !== "requested") throw new Error(`Approval ${name} already ${approval.status?.phase}`);
+        approval.status = { ...approval.status, phase: decision === "approve" ? "approved" : "denied", decidedBy: "operator", decidedAt: new Date().toISOString(), note };
+        await this.state.save();
+        await this.events.append("system", "approval.responded", { approval: name, decision, by: "operator" });
+        return approval;
+    }
+
     /** os.emitArtifact — record an artifact reference in the event log. */
     async emitArtifact(subject: Partial<AgentSubject>, spec: Record<string, any>): Promise<HadesResource> {
         const resolved = this.policy.resolveAgentSubject(subject);

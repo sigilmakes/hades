@@ -165,3 +165,42 @@ test("GET /hades/v1/events/stream sends history then live events (SSE)", async (
         server.close();
     }
 });
+
+test("POST /approvals/:name/respond approves an approval as operator", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "hades-static-"));
+    const runtime = await (await createRuntime(dir)).init();
+    await runtime.apply({ kind: "Approval", metadata: { name: "apr1", namespace: "ns" }, spec: { requestedBy: "demo", action: "spawnAgent" }, status: { phase: "requested", createdAt: new Date().toISOString() } });
+    const server = createServer(runtime);
+    await new Promise((r) => server.listen(0, r));
+    const port = server.address().port;
+    try {
+        const res = await fetch(`http://127.0.0.1:${port}/hades/v1/approvals/apr1/respond?decision=approve&namespace=ns`, {
+            method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note: "ok" }),
+        });
+        assert.equal(res.status, 200);
+        const body = await res.json();
+        assert.equal(body.status.phase, "approved");
+        assert.equal(body.status.decidedBy, "operator");
+        // It left the pending queue.
+        assert.equal(runtime.projections.approvalQueue("ns").length, 0);
+    } finally {
+        server.close();
+    }
+});
+
+test("POST /approvals/:name/respond denies, and a second respond is rejected", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "hades-static-"));
+    const runtime = await (await createRuntime(dir)).init();
+    await runtime.apply({ kind: "Approval", metadata: { name: "apr2", namespace: "ns" }, spec: { requestedBy: "demo", action: "spawnAgent" }, status: { phase: "requested", createdAt: new Date().toISOString() } });
+    const server = createServer(runtime);
+    await new Promise((r) => server.listen(0, r));
+    const port = server.address().port;
+    try {
+        const deny = await fetch(`http://127.0.0.1:${port}/hades/v1/approvals/apr2/respond?decision=deny&namespace=ns`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+        assert.equal((await deny.json()).status.phase, "denied");
+        const again = await fetch(`http://127.0.0.1:${port}/hades/v1/approvals/apr2/respond?decision=approve&namespace=ns`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+        assert.equal(again.status, 500); // already decided
+    } finally {
+        server.close();
+    }
+});

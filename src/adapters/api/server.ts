@@ -135,6 +135,14 @@ function routes(runtime: Runtime): Route[] {
                 return s.respondApproval(b.subject as never, String(b.name), String(b.decision) as "approve" | "deny", typeof b.note === "string" ? b.note : undefined);
             },
         },
+        {
+            method: "POST", path: "/hades/v1/approvals/:name/respond", handler: async (c) => {
+                const decision = c.url.searchParams.get("decision") === "deny" ? "deny" : "approve";
+                const ns = c.url.searchParams.get("namespace") ?? "default";
+                const note = typeof c.body.note === "string" ? c.body.note : undefined;
+                return s.respondApprovalAsOperator(ns, c.params.name, decision, note);
+            },
+        },
         { method: "POST", path: "/hades/v1/syscalls/emit-artifact", handler: (c) => s.emitArtifact(c.body.subject as never, c.body.spec as never) },
         {
             method: "GET", path: "/hades/v1/syscalls/permitted", handler: (c) => {
