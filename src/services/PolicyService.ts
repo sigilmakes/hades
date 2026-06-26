@@ -1,10 +1,34 @@
 import { CapabilityError, type PolicyDecision } from "../domain/capabilities.js";
-import type { AgentSubject, HadesResource } from "../domain/resources.js";
+import type { AgentSubject, HadesKind, HadesResource } from "../domain/resources.js";
 import type { PolicyPort } from "../ports/Policy.js";
 import type { StateStorePort } from "../ports/StateStore.js";
 
+/** Kinds a quota can cap (the create-able resources). */
+const QUOTABLE_KINDS: ReadonlySet<HadesKind> = new Set(["Agent", "Home", "Hands", "Listener", "Schedule", "CapabilityGrant"]);
+
 export class PolicyService implements PolicyPort {
     constructor(private readonly state: StateStorePort) {}
+
+    /**
+     * Assert a namespace is within its quota for a kind. A `NamespaceQuota`
+     * resource in the namespace caps how many of each kind may exist. Absent
+     * quota = unlimited (the default for personal use). Throws CapabilityError
+     * (a quota denial) when the cap is reached.
+     */
+    assertQuota(namespace: string, kind: HadesKind): void {
+        if (!QUOTABLE_KINDS.has(kind)) return;
+        const quota = this.state.findByName("NamespaceQuota", "default", namespace);
+        const caps = quota?.spec?.limits as Record<string, number> | undefined;
+        const cap = caps?.[kind];
+        if (cap === undefined) return; // no cap for this kind
+        const count = this.state.list(kind, namespace).length;
+        if (count >= cap) {
+            throw new CapabilityError(
+                `Quota exceeded: ${kind} in ${namespace} (${count}/${cap})`,
+                { allowed: false, reason: `quota ${kind} ${count}/${cap} in ${namespace}` },
+            );
+        }
+    }
 
     grantsFor(subjectKind: string, subjectName: string, namespace: string): HadesResource[] {
         return this.state.list("CapabilityGrant", namespace).filter((grant) => {

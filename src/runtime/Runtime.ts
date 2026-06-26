@@ -110,6 +110,7 @@ export abstract class Runtime {
     async spawnAgent(subject: Partial<AgentSubject>, spec: Record<string, any>): Promise<{ agent: HadesResource; reply: string }> {
         const resolvedSubject = this.policy.resolveAgentSubject(subject);
         this.policy.assert(resolvedSubject, "spawnAgent", { namespace: resolvedSubject.namespace });
+        this.policy.assertQuota(resolvedSubject.namespace, "Agent");
         if (!spec.name) throw new Error("spawnAgent requires a name");
         if (spec.namespace && spec.namespace !== resolvedSubject.namespace) {
             throw new Error(`spawnAgent cannot target another namespace: ${spec.namespace}`);

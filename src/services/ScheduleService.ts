@@ -76,6 +76,7 @@ export class ScheduleService {
     async createOwnSchedule(subject: Partial<AgentSubject>, spec: Record<string, any>): Promise<HadesResource> {
         const resolvedSubject = this.policy.resolveAgentSubject(subject);
         this.policy.assert(resolvedSubject, "createOwnSchedule", { namespace: resolvedSubject.namespace });
+        this.policy.assertQuota(resolvedSubject.namespace, "Schedule");
         const agentRef = spec.agentRef ?? resolvedSubject.name;
         if (agentRef !== resolvedSubject.name) throw new Error(`createOwnSchedule cannot target another agent: ${agentRef}`);
         const sessionName = spec.session ?? `${resolvedSubject.name}-default`;
