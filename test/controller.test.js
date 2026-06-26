@@ -142,3 +142,29 @@ test("controller emits reconciliation events", async () => {
     assert.ok(sys.some((e) => e.type === "agent.reconciled" && e.payload.agent === AGENT));
     assert.ok(sys.some((e) => e.type === "home.reconciled" && e.payload.home === HOME));
 });
+
+test("controller reconciles a NetworkPolicy that isolates hands pods (capability boundary)", async () => {
+    const { dist, kube } = await fixture();
+    await dist.apply({ kind: "Agent", metadata: { namespace: NS, name: "jay" }, spec: { homeRef: "jay-home", defaultSession: "jay-default", desiredState: "active", brain: { mode: "test" } } });
+    await dist.apply({ kind: "Home", metadata: { namespace: NS, name: "jay-home" }, spec: {} });
+    await dist.reconcile();
+    const netpol = kube.get(NS, "NetworkPolicy", "hands-jay-netpol");
+    assert.ok(netpol, "hands NetworkPolicy should be ensured");
+    assert.deepEqual(netpol.spec.policyTypes, ["Ingress", "Egress"]);
+    // Ingress: only the brain pod for this agent may reach hands.
+    const ingress = netpol.spec.ingress[0];
+    assert.deepEqual(ingress.from[0].podSelector.matchLabels, { "hades.dev/agent": "jay", "hades.dev/role": "brain" });
+    // Egress: default-deny (no model creds, no internet from hands).
+    assert.equal(netpol.spec.egress.length, 0);
+});
+
+test("controller mounts model credentials as a Secret only into the brain pod", async () => {
+    const { dist, kube } = await fixture();
+    await dist.apply({ kind: "Agent", metadata: { namespace: NS, name: "magpie" }, spec: { homeRef: HOME, defaultSession: "magpie-default", desiredState: "active", brain: { mode: "pi-sdk", secretRef: "magpie-model-creds" } } });
+    await dist.reconcile();
+    const brainDep = kube.get(NS, "Deployment", "brain-magpie");
+    assert.ok(brainDep.spec.template.spec.containers[0].envFrom?.some((e) => e.secretRef?.name === "magpie-model-creds"), "brain should mount the model-creds Secret");
+    // Hands must NOT have the secret.
+    const handsDep = kube.get(NS, "Deployment", "hands-magpie");
+    assert.ok(!handsDep.spec.template.spec.containers[0].envFrom, "hands must not mount any Secret");
+});

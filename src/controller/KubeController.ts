@@ -85,6 +85,11 @@ export class KubeController {
         }
 
         const ownerRef = { apiVersion: "hades.dev/v1alpha1", kind: "Agent", name, blockOwnerDeletion: true, controller: true };
+        const secretRef = agent.spec?.brain?.secretRef;
+        const brainEnv = [
+            { name: "HADES_SESSION_ID", value: agent.spec?.defaultSession ?? `${name}-default` },
+            { name: "HADES_HANDS_URL", value: `http://hands-${name}.${ns}.svc.cluster.local` },
+        ];
         const brain: KubeObject = {
             apiVersion: "apps/v1",
             kind: "Deployment",
@@ -99,10 +104,9 @@ export class KubeController {
                             name: "brain",
                             image: agent.spec?.brain?.image ?? "ghcr.io/sigilmakes/hades-brain:dev",
                             ports: [{ containerPort: 7349 }],
-                            env: [
-                                { name: "HADES_SESSION_ID", value: agent.spec?.defaultSession ?? `${name}-default` },
-                                { name: "HADES_HANDS_URL", value: `http://hands-${name}.${ns}.svc.cluster.local` },
-                            ],
+                            env: brainEnv,
+                            // Model credentials are mounted as a Secret envFrom, never into hands.
+                            ...(secretRef ? { envFrom: [{ secretRef: { name: secretRef } }] } : {}),
                         }],
                     },
                 },
@@ -154,8 +158,28 @@ export class KubeController {
             metadata: { name: `hands-${agentName}`, namespace: ns, labels: hadesLabels(hands), ownerReferences: [ownerRef] },
             spec: { selector: { "hades.dev/agent": agentName, "hades.dev/role": "hands" }, ports: [{ port: 80, targetPort: 7350 }] },
         };
+        // NetworkPolicy: the capability boundary as k8s network policy.
+        // brain pod -> hands pod only; hands pod -> nothing (no model creds, no egress).
+        const handsNetPol: KubeObject = {
+            apiVersion: "networking.k8s.io/v1",
+            kind: "NetworkPolicy",
+            metadata: { name: `hands-${agentName}-netpol`, namespace: ns, labels: hadesLabels(hands), ownerReferences: [ownerRef] },
+            spec: {
+                podSelector: { matchLabels: { "hades.dev/agent": agentName, "hades.dev/role": "hands" } },
+                policyTypes: ["Ingress", "Egress"],
+                ingress: [
+                    // Only the brain pod for this agent may reach the hands pod.
+                    { from: [{ podSelector: { matchLabels: { "hades.dev/agent": agentName, "hades.dev/role": "brain" } } }], ports: [{ port: 7350 }] },
+                ],
+                egress: [
+                    // Hands pods have no egress by default — no model creds, no internet.
+                    // (DNS could be added per-profile if a hands tool needs it; default-deny is safest.)
+                ],
+            },
+        };
         await this.kube.ensure(ns, handsDep);
         await this.kube.ensure(ns, handsSvc);
+        await this.kube.ensure(ns, handsNetPol);
         await this.events.append("system", "hands.reconciled", { hands: name, namespace: ns, deployment: `hands-${agentName}` });
         await this.patchStatus(hands, { phase: "ready", podName: `hands-${agentName}` });
     }
