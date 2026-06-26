@@ -38,6 +38,7 @@ export const KINDS = [
     "CapabilityGrant",
     "NamespaceQuota",
     "Connector",
+    "HandsImage",
 ] as const;
 
 export type HadesKind = typeof KINDS[number];

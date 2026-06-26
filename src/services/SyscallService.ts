@@ -145,6 +145,31 @@ export class SyscallService {
     }
 
     /** os.emitArtifact — record an artifact reference in the event log. */
+    /**
+     * os.installPackages — declare Nix packages for the agent's hands image and
+     * trigger a rebuild. The agent owns its environment declaratively; the
+     * controller materializes a build Job (userland nix builder) and rolls the
+     * hands pod onto the new image. Requires the `installPackages` capability
+     * so a compromised agent can't pin arbitrary images.
+     */
+    async installPackages(subject: Partial<AgentSubject>, spec: Record<string, any>): Promise<HadesResource> {
+        const resolved = this.policy.resolveAgentSubject(subject);
+        this.policy.assert(resolved, "installPackages", { namespace: resolved.namespace });
+        if (!Array.isArray(spec.packages) || spec.packages.length === 0) throw new Error("installPackages requires a non-empty packages array");
+        const name = spec.name ?? `${resolved.name}-hands`;
+        const image: HadesResource = {
+            apiVersion: "hades.dev/v1alpha1",
+            kind: "HandsImage",
+            metadata: { namespace: resolved.namespace, name },
+            spec: { packages: spec.packages, ...(spec.builderImage ? { builderImage: spec.builderImage } : {}) },
+            status: { phase: "pending" },
+        };
+        await this.state.apply(image);
+        await this.events.append("system", "handsimage.requested", { image: name, agent: resolved.name, packages: spec.packages });
+        await this.audit(resolved, "installPackages", { packages: spec.packages });
+        return image;
+    }
+
     async emitArtifact(subject: Partial<AgentSubject>, spec: Record<string, any>): Promise<HadesResource> {
         const resolved = this.policy.resolveAgentSubject(subject);
         this.policy.assert(resolved, "emitArtifact", { namespace: resolved.namespace });
@@ -166,7 +191,7 @@ export class SyscallService {
     /** List syscalls an agent is currently permitted (introspection). */
     permittedSyscalls(subject: Partial<AgentSubject>): string[] {
         const resolved = this.policy.resolveAgentSubject(subject);
-        const all = ["createSchedule", "spawnAgent", "createAgent", "createHome", "attachListener", "attachConnector", "requestApproval", "respondApproval", "emitArtifact"];
+        const all = ["createSchedule", "spawnAgent", "createAgent", "createHome", "attachListener", "attachConnector", "installPackages", "requestApproval", "respondApproval", "emitArtifact"];
         return all.filter((cap) => this.policy.can(resolved, cap, { namespace: resolved.namespace }).allowed);
     }
 
@@ -192,6 +217,7 @@ export const CAPABILITIES = [
     "createHome",
     "attachListener",
     "attachConnector",
+    "installPackages",
     "requestApproval",
     "respondApproval",
     "emitArtifact",

@@ -74,7 +74,7 @@ export function buildBrain(agent: HadesResource, ownerRefs?: OwnerRef[], connect
 }
 
 /** Build the hands `Deployment` (sleep-infinity sandbox) + its `NetworkPolicy`. */
-export function buildHands(hands: HadesResource, agent: HadesResource | undefined, ownerRefs: OwnerRef[] | undefined, egress: Record<string, unknown>[]): { deployment: KubeObject; networkPolicy: KubeObject } {
+export function buildHands(hands: HadesResource, agent: HadesResource | undefined, ownerRefs: OwnerRef[] | undefined, egress: Record<string, unknown>[], resolvedImage?: string): { deployment: KubeObject; networkPolicy: KubeObject } {
     const ns = namespaceOf(hands);
     const name = nameOf(hands);
     const agentName = hands.spec?.agentRef ?? name.replace(/-home-shell$/, "");
@@ -96,7 +96,7 @@ export function buildHands(hands: HadesResource, agent: HadesResource | undefine
                     automountServiceAccountToken: false,
                     containers: [{
                         name: "hands",
-                        image: hands.spec?.image ?? "node:24-slim",
+                        image: resolvedImage ?? hands.spec?.image ?? "node:24-slim",
                         imagePullPolicy: "IfNotPresent",
                         // The hands pod is a thin sandbox: sleep infinity. The brain
                         // execs read/write/exec into it via the k8s API. No server, no port.
@@ -237,6 +237,57 @@ function tryHost(endpoint: string): string | undefined {
     } catch {
         return undefined;
     }
+}
+
+/**
+ * Build a k8s `Job` that materializes a {@link HandsImage} — i.e. runs the
+ * userland nix builder over the agent's package declaration and produces an
+ * image tag. The kernel schedules the build; the builder image (userland)
+ * does the actual nix work. On success the controller writes the resulting
+ * tag to the HandsImage status, and Hands pods referencing it roll forward.
+ *
+ * The build is idempotent per (packages digest): the controller only creates
+ * a new Job when the spec digest changes, so re-reconciles don't rebuild.
+ */
+export function buildHandsImageJob(image: HadesResource, ownerRefs?: OwnerRef[]): KubeObject {
+    const ns = namespaceOf(image);
+    const name = nameOf(image);
+    const packages = (image.spec?.packages ?? []) as string[];
+    const digest = digestOf(packages.join(","));
+    return {
+        apiVersion: "batch/v1",
+        kind: "Job",
+        metadata: { name: `build-hands-${name}-${digest.slice(0, 8)}`, namespace: ns, labels: { ...hadesLabels(image), "hades.dev/build": name }, ownerReferences: ownerRefs },
+        spec: {
+            // One-shot; the controller sets status from the completed pod.
+            backoffLimit: 2,
+            template: {
+                spec: {
+                    restartPolicy: "OnFailure",
+                    containers: [{
+                        name: "nix-builder",
+                        // Userland: a image that runs `nix build` + loads the result.
+                        // Swappable; the kernel only schedules it.
+                        image: image.spec?.builderImage ?? "hades-nix-builder:latest",
+                        imagePullPolicy: "IfNotPresent",
+                        env: [
+                            { name: "HADES_IMAGE_NAME", value: name },
+                            { name: "HADES_PACKAGES", value: JSON.stringify(packages) },
+                            { name: "HADES_OUTPUT_TAG", value: `hands-${name}:${digest.slice(0, 12)}` },
+                        ],
+                    }],
+                },
+            },
+        },
+    };
+}
+
+/** A short, stable digest for de-duplicating builds (not cryptographic). */
+function digestOf(input: string): string {
+    // FNV-1a 32-bit hex — cheap, collision-resistant enough for build keys.
+    let h = 0x811c9dc5;
+    for (let i = 0; i < input.length; i++) { h ^= input.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+    return (h >>> 0).toString(16).padStart(8, "0");
 }
 
 /** Convert a Hades schedule spec to a k8s CronJob 5-field cron expression. */

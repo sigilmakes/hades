@@ -44,7 +44,7 @@ export class AgentService {
                 apiVersion: "hades.dev/v1alpha1",
                 kind: "Hands",
                 metadata: { namespace, name: `${agentName}-home-shell` },
-                spec: { agentRef: agentName, type: "home-toolbox", mode: "exclusive-home", homeRef: agent.spec?.homeRef },
+                spec: { agentRef: agentName, type: "home-toolbox", mode: "exclusive-home", homeRef: agent.spec?.homeRef, ...(agent.spec?.handsImageRef ? { handsImageRef: agent.spec.handsImageRef } : {}) },
                 status: { phase: "ready", podName: `hands-${agentName}-local` },
             });
         }
