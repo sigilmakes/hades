@@ -168,3 +168,44 @@ test("controller mounts model credentials as a Secret only into the brain pod", 
     const handsDep = kube.get(NS, "Deployment", "hands-magpie");
     assert.ok(!handsDep.spec.template.spec.containers[0].envFrom, "hands must not mount any Secret");
 });
+
+test("distributed spawnAgent creates a real brain pod for the ephemeral worker and reaps it", async () => {
+    const { dist, kube } = await fixture();
+    await dist.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "spawn-grant" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["spawnAgent"], constraints: { namespace: "own" } } });
+    // Spawn an ephemeral worker. In deploy mode this creates a real Agent resource
+    // the controller reconciles into brain/hands pods, then reaps (cascades).
+    const result = await dist.spawnAgent({ kind: "Agent", name: AGENT, namespace: NS }, { name: "ephemeral-worker", prompt: "do a small task" });
+    assert.match(result.reply, /received:|wrote/);
+    // While running (before reap completes), the controller would have ensured pods.
+    // After reap, the ephemeral is completed and the controller cascades deletion.
+    const worker = dist.state.get("Agent", NS, "ephemeral-worker");
+    assert.equal(worker.spec.lifecycle, "ephemeral");
+    assert.equal(worker.status.phase, "completed");
+    // Re-reconcile: the controller sees the completed ephemeral and cascades.
+    await dist.reconcile();
+    assert.equal(kube.get(NS, "Deployment", "brain-ephemeral-worker"), undefined, "ephemeral brain pod cascaded away after reap");
+    assert.equal(kube.get(NS, "Deployment", "hands-ephemeral-worker"), undefined, "ephemeral hands pod cascaded away after reap");
+    // Spawn grant is cleaned up (the try/finally invariant).
+    assert.equal(dist.state.get("CapabilityGrant", NS, "ephemeral-worker-spawn-grant"), undefined);
+});
+
+test("distributed spawnAgent with a capability grant projects to a scoped grant that is reaped", async () => {
+    const { dist } = await fixture();
+    await dist.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "spawn-grant" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["spawnAgent"], constraints: { namespace: "own" } } });
+    await dist.spawnAgent({ kind: "Agent", name: AGENT, namespace: NS }, { name: "granted-worker", prompt: "hello", capabilities: ["createOwnSchedule"] });
+    // The spawn grant existed during the run and was cleaned up after reap.
+    assert.equal(dist.state.get("CapabilityGrant", NS, "granted-worker-spawn-grant"), undefined, "spawn grant cleaned up");
+    const worker = dist.state.get("Agent", NS, "granted-worker");
+    assert.equal(worker.status.phase, "completed");
+});
+
+test("distributed spawnAgent fails when the worker run throws but still reaps", async () => {
+    const { dist } = await fixture();
+    await dist.apply({ kind: "CapabilityGrant", metadata: { namespace: NS, name: "spawn-grant" }, spec: { subject: { kind: "Agent", name: AGENT }, capabilities: ["spawnAgent"], constraints: { namespace: "own" } } });
+    // A bogus directive makes the worker run throw; the worker must still be reaped.
+    await dist.spawnAgent({ kind: "Agent", name: AGENT, namespace: NS }, { name: "failing-worker", prompt: "!bogusdirective", capabilities: ["createOwnSchedule"] }).catch(() => {});
+    const worker = dist.state.get("Agent", NS, "failing-worker");
+    assert.ok(worker, "worker exists even after a failed run");
+    assert.equal(worker.status.phase, "completed", "failed worker is still reaped");
+    assert.equal(dist.state.get("CapabilityGrant", NS, "failing-worker-spawn-grant"), undefined, "failed worker grant cleaned up");
+});

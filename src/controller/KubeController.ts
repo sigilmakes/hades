@@ -129,6 +129,11 @@ export class KubeController {
         const ns = namespaceOf(hands);
         const name = nameOf(hands);
         const agentName = hands.spec?.agentRef ?? name.replace(/-home-shell$/, "");
+        // Skip hands whose agent is a reaped ephemeral — the agent cascade handles deletion.
+        const agent = this.state.findByName("Agent", agentName, ns);
+        if (agent?.spec?.lifecycle === "ephemeral" && agent?.status?.phase === "completed") {
+            return;
+        }
         const ownerRef = { apiVersion: "hades.dev/v1alpha1", kind: "Hands", name, blockOwnerDeletion: true, controller: true };
         const handsDep: KubeObject = {
             apiVersion: "apps/v1",
