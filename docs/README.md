@@ -16,6 +16,15 @@ then branch by topic.
 4. **[Install](install.md)** — Helm chart + raw manifests + value overrides.
 4. **[Development](development.md)** — KISS/SOLID, ports-and-adapters, the kernel analogy, code style, testing, adding adapters and syscalls.
 
+### Tutorials
+
+Hands-on walkthroughs under [`tutorials/`](tutorials/README.md):
+
+1. [Install on kind](tutorials/01-install-on-kind.md) — from zero to a running control plane.
+2. [A Discord bot agent](tutorials/02-discord-bot.md) — listener + outbound connector.
+3. [A custom Nix hands image](tutorials/03-custom-hands-image.md) — declarative packages.
+4. [Publish + consume a Skill](tutorials/04-publish-consume-skill.md) — the HTTP capability loop.
+
 ## Topics
 
 - **[Resources](resources.md)** — the custom resources and their schemas.
