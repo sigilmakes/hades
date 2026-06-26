@@ -13,6 +13,7 @@ then branch by topic.
 1. **[Thesis](thesis.md)** — what Hades is and what it provides.
 2. **[Architecture](architecture.md)** — the kernel, the runtime, the privilege ladder, the object graph.
 3. **[Setup](setup.md)** — getting started: the offline test path, the kind + Tilt dev loop, brain modes, hands confinement, schedules.
+4. **[Install](install.md)** — Helm chart + raw manifests + value overrides.
 4. **[Development](development.md)** — KISS/SOLID, ports-and-adapters, the kernel analogy, code style, testing, adding adapters and syscalls.
 
 ## Topics

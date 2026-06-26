@@ -1,0 +1,98 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Release.Namespace }}
+  labels:
+    {{- include "hades.labels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hades-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hades.labels" . | nindent 4 }}
+---
+# Brain pod ServiceAccount — may exec into hands pods (the brain→hands wire).
+# Scoped to pods/exec + pods get/list only; no CRUD on other resources.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hades-brain
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hades.labels" . | nindent 4 }}
+  automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hades-brain
+  labels:
+    {{- include "hades.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hades-brain
+  labels:
+    {{- include "hades.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: hades-brain
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: hades-brain
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hades-controller
+  labels:
+    {{- include "hades.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["hades.dev"]
+    resources: ["agents","agentclasses","homes","sessions","brainbindings","hands","listeners","schedules","runs","approvals","capabilitygrants"]
+    verbs: ["get","list","watch","create","update","patch","delete"]
+  - apiGroups: ["hades.dev"]
+    resources: ["*/status"]
+    verbs: ["get","patch","update"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get","list","watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get","list","watch","create","update","patch","delete"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs","jobs"]
+    verbs: ["get","list","watch","create","update","patch","delete"]
+  - apiGroups: [""]
+    resources: ["pods","services","persistentvolumeclaims","secrets","configmaps","events"]
+    verbs: ["get","list","watch","create","update","patch","delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get","list","watch","create","update","patch","delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hades-controller
+  labels:
+    {{- include "hades.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: hades-controller
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: hades-controller
+  apiGroup: rbac.authorization.k8s.io

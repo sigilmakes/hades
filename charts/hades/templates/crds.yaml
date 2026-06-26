@@ -1,0 +1,404 @@
+# Hades custom resource definitions.
+# Each CRD carries a validated openAPIV3Schema — kubectl apply rejects malformed
+# resources before they reach the controller.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: agents.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: agents
+    singular: agent
+    kind: Agent
+    shortNames: [ag]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              properties:
+                displayName: { type: string }
+                classRef: { type: string }
+                homeRef: { type: string }
+                defaultSession: { type: string }
+                desiredState: { type: string, enum: [active, inactive] }
+                lifecycle: { type: string, enum: [resident, ephemeral] }
+                systemAgent: { type: boolean }
+                brain:
+                  type: object
+                  properties:
+                    mode: { type: string, enum: [pi-sdk, test] }
+                    image: { type: string }
+                    secretRef: { type: string }
+            status:
+              type: object
+              properties:
+                phase: { type: string }
+                brainPod: { type: string }
+                session: { type: string }
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: agentclasses.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: agentclasses
+    singular: agentclass
+    kind: AgentClass
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              properties:
+                brainImage: { type: string }
+                allowedTools:
+                  type: array
+                  items: { type: string }
+                defaultHandsPolicy: { type: string }
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: homes.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: homes
+    singular: home
+    kind: Home
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              properties:
+                size: { type: string }
+                layout:
+                  type: object
+                  properties:
+                    create:
+                      type: array
+                      items: { type: string }
+                files:
+                  type: array
+                  items:
+                    type: object
+                    required: [path]
+                    properties:
+                      path: { type: string }
+                      content: { type: string }
+                      mode: { type: number }
+            status:
+              type: object
+              properties:
+                phase: { type: string }
+                pvc: { type: string }
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: sessions.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: sessions
+    singular: session
+    kind: Session
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                agentRef: { type: string }
+                logRef: { type: string }
+            status:
+              type: object
+              properties:
+                phase: { type: string }
+                lastEventId: { type: string }
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: brainbindings.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: brainbindings
+    singular: brainbinding
+    kind: BrainBinding
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                agentRef: { type: string }
+                sessionRef: { type: string }
+                image: { type: string }
+            status:
+              type: object
+              properties:
+                phase: { type: string }
+                podName: { type: string }
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: hands.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: hands
+    singular: hands
+    kind: Hands
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              properties:
+                agentRef: { type: string }
+                homeRef: { type: string }
+                image: { type: string }
+            status:
+              type: object
+              properties:
+                phase: { type: string }
+                podName: { type: string }
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: listeners.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: listeners
+    singular: listener
+    kind: Listener
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [agentRef, platform]
+              properties:
+                agentRef: { type: string }
+                platform: { type: string, enum: [cli, discord, matrix, email, web] }
+                secretRef: { type: string }
+                routes: { type: string }
+            status:
+              type: object
+              properties:
+                phase: { type: string }
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: schedules.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: schedules
+    singular: schedule
+    kind: Schedule
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [agentRef, type, schedule]
+              properties:
+                agentRef: { type: string }
+                type: { type: string, enum: [once, interval, cron] }
+                schedule: { type: string }
+                session: { type: string }
+                prompt: { type: string }
+                promptRef:
+                  type: object
+                  properties:
+                    homePath: { type: string }
+            status:
+              type: object
+              properties:
+                phase: { type: string }
+                lastFiredAt: { type: string }
+                firedAt: { type: string }
+                error: { type: string }
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: runs.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: runs
+    singular: run
+    kind: Run
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                agentRef: { type: string }
+                sessionRef: { type: string }
+                artifactRef: { type: string }
+                artifactKind: { type: string }
+                summary: { type: string }
+            status:
+              type: object
+              properties:
+                phase: { type: string }
+                startedAt: { type: string }
+                completedAt: { type: string }
+                emittedAt: { type: string }
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: approvals.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: approvals
+    singular: approval
+    kind: Approval
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [requestedBy, action]
+              properties:
+                requestedBy: { type: string }
+                action: { type: string }
+                reason: { type: string }
+                resource: { type: string }
+                expiresIn: { type: string }
+            status:
+              type: object
+              properties:
+                phase: { type: string, enum: [requested, approved, denied, expired] }
+                createdAt: { type: string }
+                decidedBy: { type: string }
+                decidedAt: { type: string }
+                note: { type: string }
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: capabilitygrants.hades.dev
+spec:
+  group: hades.dev
+  scope: Namespaced
+  names:
+    plural: capabilitygrants
+    singular: capabilitygrant
+    kind: CapabilityGrant
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [subject, capabilities]
+              properties:
+                subject:
+                  type: object
+                  required: [kind, name]
+                  properties:
+                    kind: { type: string, enum: [Agent] }
+                    name: { type: string }
+                capabilities:
+                  type: array
+                  items: { type: string }
+                constraints:
+                  type: object
+                  properties:
+                    namespace: { type: string, enum: [own] }
+                    systemGrant: { type: boolean }
+                    maxChildDepth: { type: number }
+            status:
+              type: object
+              properties:
+                phase: { type: string }
