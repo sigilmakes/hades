@@ -11,9 +11,8 @@ import { LocalConfinedHands } from "../adapters/hands/LocalConfinedHands.js";
 import { PiSdkBrainDriver } from "../adapters/brain/PiSdkBrainDriver.js";
 import { TestBrainDriver } from "../adapters/brain/TestBrainDriver.js";
 import { HttpBrainDriver } from "../adapters/brain/HttpBrainDriver.js";
-import { HttpHandsClient } from "../adapters/hands/HttpHandsClient.js";
-import { JsonStateStore } from "../adapters/store/JsonStateStore.js";
-import { JsonlEventStore } from "../adapters/store/JsonlEventStore.js";
+import { SqliteEventStore } from "../adapters/store/SqliteEventStore.js";
+import { SqliteStateStore } from "../adapters/store/SqliteStateStore.js";
 import { Runtime } from "./Runtime.js";
 import type { BrainDriver } from "../ports/BrainDriver.js";
 import type { HandsResolver } from "../ports/HandsResolver.js";
@@ -65,8 +64,8 @@ export class DistributedRuntime extends Runtime {
  * replace the defaults as phases land.
  */
 export function createDistributedRuntime(dataDir: string, options: DistributedRuntimeOptions = {}): DistributedRuntime {
-    const state = options.stateStore ?? new JsonStateStore(dataDir);
-    const events = options.eventStore ?? new JsonlEventStore(dataDir);
+    const state = options.stateStore ?? new SqliteStateStore(dataDir);
+    const events = options.eventStore ?? new SqliteEventStore(dataDir);
     const agents = new AgentService(dataDir, state, events);
     const policy = new PolicyService(state);
     const schedules = new ScheduleService(state, events, policy);

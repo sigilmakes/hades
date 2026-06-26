@@ -109,3 +109,18 @@ function mkdtempSync() {
     const dir = spawnSync("mktemp", ["-d"], { encoding: "utf8" }).stdout.trim();
     return dir;
 }
+
+test("distributed runtime uses durable sqlite stores that survive a controller restart", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "hades-durable-"));
+    const dist1 = await createDistributedRuntime(dir).init();
+    await dist1.apply({ kind: "Home", metadata: { namespace: "mode-test", name: "raven-home" }, spec: {} });
+    await dist1.apply({ kind: "Agent", metadata: { namespace: "mode-test", name: "raven" }, spec: { homeRef: "raven-home", defaultSession: "raven-default", desiredState: "active", brain: { mode: "test" } } });
+    await dist1.reconcile();
+    await dist1.messageAgent("mode-test/raven", "!write vault/durable.md <<<survives");
+    // Simulate a controller pod restart: drop the runtime, make a new one on the same PVC.
+    const dist2 = await createDistributedRuntime(dir).init();
+    assert.ok(dist2.state.get("Agent", "mode-test", "raven"), "agent survived restart");
+    assert.ok(dist2.state.get("Home", "mode-test", "raven-home"), "home survived restart");
+    const events = await dist2.events.list("raven-default");
+    assert.ok(events.some((e) => e.type === "home.file.written"), "events survived restart");
+});
