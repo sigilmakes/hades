@@ -1,4 +1,4 @@
-# 03 — Resources
+# Resources
 
 Hades resources are Kubernetes custom resources (`hades.dev/v1alpha1`). They are
 visible through `kubectl`, reconciled by the controller, and backed by normal
@@ -165,7 +165,7 @@ status:
 ```
 
 Capabilities are typed permissions above raw Kubernetes RBAC. The full catalog
-is in [`10-syscalls.md`](10-syscalls.md).
+is in [`syscalls.md`](syscalls.md).
 
 ## Approval
 
@@ -196,3 +196,10 @@ project-* / team-*  per-project agent namespaces (multi-tenant)
 
 System agents live in `hades-system` with scoped grants. Ordinary agents live
 in their own namespace and cannot, by default, target another namespace.
+
+## See also
+
+- [Brain and Session](brain-and-session.md) — the `Agent`, `Session`, `BrainBinding` resources in motion.
+- [Hands and Tools](hands-and-tools.md) — the `Hands` resource and the sandbox.
+- [Schedules](schedules.md) — the `Schedule` resource.
+- [Syscalls](syscalls.md) — the capability catalog behind `CapabilityGrant`.

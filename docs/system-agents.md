@@ -1,4 +1,4 @@
-# 11 — System Agents
+# System Agents
 
 System agents are privileged userland daemons that manage Hades. They are
 agents with elevated (but scoped) capabilities — never blanket cluster-admin.
@@ -55,3 +55,9 @@ flowchart TD
 Any agent with `spawnAgent` may spawn child agents if policy permits. A
 resident agent spawning a helper is process spawning, not hidden tool
 execution — the child is a real, inspectable `Agent` resource.
+
+## See also
+
+- [Syscalls](syscalls.md) — the syscall surface system agents call.
+- [Security](security.md) — scoped elevated capabilities, never blanket cluster-admin.
+- [Control Plane](control-plane.md) — bootstrapping on reconcile.

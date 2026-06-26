@@ -1,4 +1,4 @@
-# 06 — Listeners
+# Listeners
 
 Listeners are per-agent I/O devices: Discord, Matrix, email, web, CLI. They are
 **not** tools — they are the channels through which an agent talks to the world.
@@ -89,3 +89,9 @@ POST /hades/v1/agents/{agent}/message
 ```
 
 `hades attach <agent>` is the CLI form of this, using the `CliBridge`.
+
+## See also
+
+- [Brain and Session](brain-and-session.md) — where listener messages route.
+- [Resources](resources.md) — the `Listener` resource schema.
+- [Control Plane](control-plane.md) — listener reconciliation.

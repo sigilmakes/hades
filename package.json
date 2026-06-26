@@ -35,9 +35,8 @@
   },
   "files": [
     "dist/",
-    "deploy/",
+    "infra/",
     "examples/",
-    "spec/",
     "docs/",
     "README.md"
   ]

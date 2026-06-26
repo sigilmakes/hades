@@ -1,4 +1,4 @@
-# 01 — Thesis
+# Thesis
 
 Hades is a Kubernetes-native agent operating system. A small kernel supervises
 agent workloads — brains, hands, listeners — as disposable pods, while durable
@@ -77,3 +77,9 @@ Tool calls are the right boundary for narrow capabilities (read a file, run a
 command, create a schedule). An agent society also needs identity, addressing,
 lifecycles, logs, homes, permissions, schedules, listeners, topology, and
 supervision — that is what Hades provides.
+
+## See also
+
+- [Architecture](architecture.md) — the kernel, the runtime, the privilege ladder.
+- [Resources](resources.md) — the custom resources the kernel manages.
+- [Control Plane](control-plane.md) — how the kernel reconciles desired state.

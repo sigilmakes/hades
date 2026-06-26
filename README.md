@@ -58,10 +58,13 @@ See [`infra/README.md`](infra/README.md).
 
 ## Documentation
 
-- [`docs/architecture.md`](docs/architecture.md) — how the system works: the kernel, the resident/ephemeral model, the two runtimes, the privilege ladder.
-- [`docs/setup.md`](docs/setup.md) — setup: what works offline, what needs your environment, local hands confinement, schedules, where state lives.
-- [`docs/development.md`](docs/development.md) — dev guide: KISS/SOLID, ports-and-adapters, the kernel analogy, code style, testing, adding adapters and syscalls.
-- [`spec/`](spec/) — the full spec set, verified against the codebase.
+All docs live in [`docs/`](docs/) — start at [`docs/README.md`](docs/README.md) for the reading order and the doc graph.
+
+- [`docs/thesis.md`](docs/thesis.md) — what Hades is and what it provides.
+- [`docs/architecture.md`](docs/architecture.md) — the kernel, the runtime, the privilege ladder, the object graph.
+- [`docs/setup.md`](docs/setup.md) — the offline test path, the kind + Tilt dev loop, brain modes, hands confinement, schedules.
+- [`docs/development.md`](docs/development.md) — KISS/SOLID, ports-and-adapters, the kernel analogy, code style, testing.
+- [`docs/resources.md`](docs/resources.md), [`brain-and-session.md`](docs/brain-and-session.md), [`hands-and-tools.md`](docs/hands-and-tools.md), [`listeners.md`](docs/listeners.md), [`schedules.md`](docs/schedules.md), [`control-plane.md`](docs/control-plane.md), [`security.md`](docs/security.md), [`syscalls.md`](docs/syscalls.md), [`system-agents.md`](docs/system-agents.md), [`projections.md`](docs/projections.md) — topical reference.
 
 ## Code shape
 

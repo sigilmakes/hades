@@ -4,7 +4,7 @@ import type { StateStorePort } from "../ports/StateStore.js";
 import { PolicyService } from "./PolicyService.js";
 
 /**
- * The `os.*` syscall layer (spec/08). Agents do not patch raw Kubernetes YAML by
+ * The `os.*` syscall layer (docs/control-plane.md). Agents do not patch raw Kubernetes YAML by
  * default — they call typed Hades syscalls that validate capabilities and write
  * CRDs/events. This is the OS surface: a small, typed, capability-checked API
  * that is the resident agent's main programming model.
@@ -18,7 +18,7 @@ import { PolicyService } from "./PolicyService.js";
  * Implemented today: createSchedule, spawnAgent (delegates to the runtime),
  * createAgent, createHome, attachListener, requestApproval, emitArtifact.
  *
- * Approvals are resumable gates (spec/09): requestApproval creates an Approval
+ * Approvals are resumable gates (docs/security.md): requestApproval creates an Approval
  * resource the human (or an authorized agent) responds to; the calling run can
  * await resolution. This is the human-in-the-loop primitive for destructive ops.
  */
@@ -85,7 +85,7 @@ export class SyscallService {
 
     /**
      * os.requestApproval — a resumable gate for destructive/privileged ops
-     * (spec/09). Creates an Approval resource the human (or authorized agent)
+     * (docs/security.md). Creates an Approval resource the human (or authorized agent)
      * responds to. The calling run may await {@link awaitApproval}.
      */
     async requestApproval(subject: Partial<AgentSubject>, spec: Record<string, any>): Promise<HadesResource> {

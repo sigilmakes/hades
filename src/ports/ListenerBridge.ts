@@ -2,7 +2,7 @@ import type { HadesResource } from "../domain/resources.js";
 
 /**
  * A listener bridge: the gateway/driver that connects a platform (Discord,
- * Matrix, email, web, CLI) to a Hades agent (spec/06). Listeners are per-agent
+ * Matrix, email, web, CLI) to a Hades agent (docs/listeners.md). Listeners are per-agent
  * I/O devices — *not* tools. A bridge receives inbound messages and routes
  * them to the agent's session; replies default to the inbound origin.
  *
@@ -24,7 +24,7 @@ export interface ListenerBridge {
     send(target: string, text: string): Promise<void>;
 }
 
-/** The inbound message shape a bridge produces (spec/06). */
+/** The inbound message shape a bridge produces (docs/listeners.md). */
 export type InboundMessage = {
     listenerRef: string;
     agentRef: string;

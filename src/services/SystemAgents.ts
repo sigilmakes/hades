@@ -3,7 +3,7 @@ import type { EventStorePort } from "../ports/EventStore.js";
 import type { StateStorePort } from "../ports/StateStore.js";
 
 /**
- * System agents (spec/12): privileged userland daemons that manage Hades,
+ * System agents (docs/system-agents.md): privileged userland daemons that manage Hades,
  * modeled as agents with elevated (but scoped) capabilities — never blanket
  * cluster-admin.
  *

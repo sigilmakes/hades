@@ -1,4 +1,4 @@
-# 07 — Schedules
+# Schedules
 
 Schedules are first-class resources: timers that inject a prompt into an
 agent. They are kernel-owned and agent-authorable through the
@@ -48,3 +48,9 @@ self-modification.
 Schedule prompt bodies may live in the agent Home (`cron.d/*.md`), referenced
 via `promptRef.homePath`, or inline as `prompt`. Home files are editable
 userland; the Schedule resource is the executable desired state.
+
+## See also
+
+- [Syscalls](syscalls.md) — `os.createSchedule`, the agent-authored path.
+- [Resources](resources.md) — the `Schedule` resource schema.
+- [Control Plane](control-plane.md) — schedule reconciliation to `CronJob`.

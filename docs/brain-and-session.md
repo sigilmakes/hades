@@ -1,4 +1,4 @@
-# 04 — Brain and Session
+# Brain and Session
 
 The brain is the model/harness loop. The session is the durable event log.
 They are separate concerns: the brain is cattle, the session is precious.
@@ -125,3 +125,9 @@ source of truth; the brain is reconstructed from it.
 Model credentials live in brain pod configuration (a Kubernetes `Secret`
 mounted via `envFrom`), never inside hands. The brain resolves providers/models
 through the pi SDK's configured auth; Hades does not special-case any provider.
+
+## See also
+
+- [Hands and Tools](hands-and-tools.md) — where brain tool calls execute.
+- [Resources](resources.md) — the `Agent`, `Session`, `BrainBinding` schemas.
+- [Security](security.md) — credential isolation between brain and hands.

@@ -4,11 +4,11 @@ import type { StateStorePort } from "../ports/StateStore.js";
 import { nameOf, namespaceOf } from "../domain/resources.js";
 
 /**
- * Projections: derived views over durable state + events (spec/08). The UI and
+ * Projections: derived views over durable state + events (docs/control-plane.md). The UI and
  * `kubectl`-style inspection should not replay every raw event on every frame;
  * projections are pre-computed summaries.
  *
- * Raw events remain authoritative (spec/08 invariant). Projections are caches.
+ * Raw events remain authoritative (docs/control-plane.md invariant). Projections are caches.
  *
  * Today this is a synchronous read over the in-memory state mirror + event log
  * (cheap, always-fresh). A background projection store (maintained on event

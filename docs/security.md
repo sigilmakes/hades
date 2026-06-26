@@ -1,4 +1,4 @@
-# 09 — Security
+# Security
 
 Hades preserves self-modification while keeping prompt injection from becoming
 cluster-admin. The mechanism is capabilities + credential isolation + network
@@ -87,9 +87,15 @@ queryable via projections.
 ## System agents
 
 System agents receive elevated **but scoped** capabilities, never blanket
-cluster-admin. See [`11-system-agents.md`](11-system-agents.md).
+cluster-admin. See [`system-agents.md`](system-agents.md).
 
 ## Principle
 
 Agents may grow their userland. They may not silently mutate the kernel or
 escape their capability domain.
+
+## See also
+
+- [Syscalls](syscalls.md) — capability-checked self-modification.
+- [System Agents](system-agents.md) — scoped elevated grants.
+- [Hands and Tools](hands-and-tools.md) — the sandbox and credential boundary.

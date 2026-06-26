@@ -1,4 +1,4 @@
-# 12 — Projections
+# Projections
 
 Projections are derived views over durable state and events. They exist so the
 UI and inspection tools don't replay every raw event on every read. Raw events
@@ -58,3 +58,8 @@ syscall.audited             <who> -> <capability>
 
 Raw events stay queryable via `GET /hades/v1/events?session=`; projections are
 the pre-computed convenience layer on top.
+
+## See also
+
+- [Control Plane](control-plane.md) — the API server that exposes projection reads.
+- [Brain and Session](brain-and-session.md) — the durable events projections are derived from.

@@ -1,4 +1,4 @@
-# 08 — Control Plane
+# Control Plane
 
 Hades is a control plane. It owns desired state, lifecycle, routing, policy,
 and observability.
@@ -36,8 +36,8 @@ flowchart TB
 ## API server
 
 Stateless HTTP/JSON. Exposes management endpoints, syscall endpoints, and
-projection reads. See [`10-syscalls.md`](10-syscalls.md) for the syscall
-surface and [`12-projections.md`](12-projections.md) for read views.
+projection reads. See [`syscalls.md`](syscalls.md) for the syscall
+surface and [`projections.md`](projections.md) for read views.
 
 ## Reconciler
 
@@ -95,3 +95,10 @@ The controller uses only standard Kubernetes API objects — no `hostPath`, no
 bare host processes, no `localhost:` ports, no node pinning. k3s **is**
 Kubernetes, so single-node → multi-node is a StorageClass swap, never a code
 change.
+
+## See also
+
+- [Architecture](architecture.md) — where the control plane sits in the kernel.
+- [Syscalls](syscalls.md) — the API syscall surface.
+- [Projections](projections.md) — the read views the API exposes.
+- [Resources](resources.md) — what the controller reconciles.

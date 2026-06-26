@@ -1,4 +1,4 @@
-# Hades Architecture
+# Architecture
 
 Hades is a **monolithic agent kernel**: one privileged supervisor with internal
 subsystems, supervising squishy agent workloads. Think Linux, not a microkernel
@@ -66,8 +66,8 @@ flowchart LR
 |-------|-------|
 | the kernel | the control plane — API, reconciler, policy, stores |
 | kernel subsystems (scheduler, fs, net, caps) | Hades services, in-kernel |
-| daemons (long-running, privileged) | **resident agents** |
-| throwaway processes (short-lived, confined) | **ephemeral agents** |
+| daemons (long-running, privileged) | **resident agents** — Atlas is one |
+| throwaway processes (short-lived, confined) | **ephemeral agents** — a research subagent |
 | syscalls (`fork`, `socket`, `read`) | `os.*` capability-checked syscalls |
 | device drivers (loadable modules) | listener bridges (Discord/Matrix/CLI) |
 | Linux capabilities + seccomp | the capability/permission system |
@@ -130,40 +130,29 @@ flowchart TD
 Granting more is a deliberate, inspectable, revocable act recorded in the event
 log — the OS-permission primitive.
 
-## Distributed mode
+## Code shape
 
-The same kernel services run in both modes behind the same ports:
+```text
+src/domain/      resource, event, capability, sandbox, schedule-due, primitives
+src/ports/       interfaces: stores, brain driver, hands, kube, listener bridge, policy
+src/services/    in-kernel subsystems: Agent/Home/Message/Schedule/Policy/
+                 Listener/Reconciler/Syscall/SystemAgents/Projection
+src/adapters/    JSON/SQLite stores, pi-SDK + test + HTTP brains,
+                 LocalConfined/Container/HTTP/MCP hands, k8s clients, HTTP API
+src/runtime/     HadesRuntime (the composition root) + Runtime base
+src/controller/  KubeController (CRDs → native k8s objects)
+src/brain-pod/   the brain pod HTTP server + CLI
+src/hands-pod/   the hands pod MCP server + CLI
+```
 
-- **Brain pods** lift the pi-SDK model loop into their own process (`POST /run` + SSE). Tool calls route over **MCP Streamable HTTP** to hands pods.
-- **Hands pods** are MCP servers exposing `hades_read`/`hades_write`/`hades_exec`, backed by the same confinement logic. Model credentials never live here.
-- **A k8s controller** reconciles Hades resources into native k8s objects: `Deployment`s for brains, `PVC`s for homes, `CronJob`s for schedules, `NetworkPolicy` + `RBAC` for capability projection. Uses `ownerReferences` for native GC.
-- **Durable stores**: SQLite-on-PVC event + state stores (behind the port; Postgres is the prod target).
-- **Node-count-agnostic**: only standard k8s API objects; single-node k3s → multi-node is a StorageClass swap, never a rewrite.
+Subsystems are internal to the kernel, not peer servers — that is the
+monolithic choice. Ports exist so `LocalConfinedHands` (in-process, no
+isolation) and `ContainerHands` (docker isolation) are the same interface with
+different policy.
 
-## System agents
+## See also
 
-Three privileged userland daemons are bootstrapped on reconcile:
-**provisioner** (creates agents/homes/listeners), **janitor** (cleans expired
-resources), **auditor** (reviews policy/exposure). They are agents with scoped
-capabilities — intelligent operators on top of the deterministic controller.
-
-## Syscalls that are real today
-
-The full `os.*` syscall layer, capability-checked and audited:
-
-- `os.createSchedule` — resident agents set their own timers (cron/interval/once).
-- `os.spawnAgent` — a resident agent mints a confined ephemeral worker; the kernel reaps it after. In deploy mode this is a real pod; the controller cascades brain/hands pod deletion.
-- `os.createAgent` / `os.createHome` / `os.attachListener` — provision agents, homes, and platform listeners.
-- `os.requestApproval` / `os.respondApproval` — resumable human-in-the-loop gates for destructive ops.
-- `os.emitArtifact` — record artifact references in the event log.
-
-See [`spec/10-syscalls.md`](../spec/10-syscalls.md).
-
-## Outstanding work
-
-The distributed OS is feature-complete for the credential-free surface.
-Remaining work is adapters behind existing ports:
-
-- **Real platform listener bridges**: the CLI bridge is real (`hades attach`); Discord/Matrix/email bridges are declared resources with the routing contract in place, but their platform SDKs are not wired.
-- **Live-cluster smoke test**: the controller is tested against a `FakeKubeClient`; the `@kubernetes/client-node`-backed client is wired but not yet exercised against a real cluster.
-- **Real model run**: the brain's pi-SDK path is wired but only exercised by an offline test brain. Running a real model depends on your environment's providers/keys.
+- [Thesis](thesis.md) — what Hades is and what it provides.
+- [Development](development.md) — KISS/SOLID, ports-and-adapters, the kernel analogy as engineering principle.
+- [Resources](resources.md) — the object graph in detail.
+- [Control Plane](control-plane.md) — the reconciler and the k8s controller.

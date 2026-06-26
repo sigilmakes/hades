@@ -1,4 +1,4 @@
-# 10 — Syscalls
+# Syscalls
 
 Agents do not patch raw Kubernetes YAML. They call typed Hades syscalls that
 validate capabilities, enforce namespace boundaries, and write resources +
@@ -91,4 +91,10 @@ readPolicy           readAuditEvents     createFinding
 Capabilities are granted via `CapabilityGrant` resources with constraints
 (e.g. `namespace: own`). The `messageAgent` capability gates direct messaging.
 System agents use the `deleteExpired*`, `readPolicy`, and `createFinding`
-capabilities (see [`11-system-agents.md`](11-system-agents.md)).
+capabilities (see [`system-agents.md`](system-agents.md)).
+
+## See also
+
+- [Security](security.md) — capabilities, approvals, audit.
+- [System Agents](system-agents.md) — the elevated grants provisioner/janitor/auditor use.
+- [Control Plane](control-plane.md) — the API endpoints that expose syscalls.

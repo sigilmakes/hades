@@ -1,4 +1,4 @@
-# 05 — Hands and Tools
+# Hands and Tools
 
 Hands are execution environments. Tools are the syscalls brains use to affect
 the world. Hands pods are disposable; they hold no model credentials.
@@ -114,3 +114,9 @@ result returns through the event log
 
 Creating a tool in the home is a filesystem write; *granting* it broad
 privilege is a separate, capability-gated act.
+
+## See also
+
+- [Brain and Session](brain-and-session.md) — the brain that drives tool calls.
+- [Security](security.md) — the sandbox ladder, network policy, filesystem policy.
+- [Resources](resources.md) — the `Hands` and `Home` resources.
