@@ -33,6 +33,7 @@ try {
     else if (command === "reconcile") await reconcile();
     else if (command === "message" || command === "say") await message(args);
     else if (command === "events" || command === "tail") await events(args[0]);
+    else if (command === "logs") await logs(args);
     else if (command === "state") console.log(JSON.stringify(await (await runtime()).snapshot(), null, 4));
     else if (command === "get") await get(args);
     else if (command === "primitives") await primitives(args[0]);
@@ -56,6 +57,7 @@ Commands:
   reconcile                    run controllers once
   say [opts] <agent> <txt>     send a prompt to an agent
   tail [session]               print durable events
+  logs <agent> [--tail N]     stream a brain pod's stdout (HADES_KUBE=1)
   state                        print resource state
   get <kind> [name]           list resources (kubectl-style table)
                               kind: agents, homes, hands, listeners,
@@ -180,6 +182,21 @@ function detailFor(kind: string, r: { spec?: Record<string, unknown>; status?: R
         case "CapabilityGrant": return String((r.spec?.subject as { name?: string } | undefined)?.name ?? "-");
         default: return "-";
     }
+}
+
+async function logs(args: string[]): Promise<void> {
+    const { namespace, rest } = parseNamespace(args);
+    const agentName = rest[0];
+    if (!agentName) throw new Error("logs requires an agent name: hades logs <agent> [--tail N]");
+    const rt = await runtime();
+    if (!rt.kubeClient) throw new Error("hades logs needs a live cluster — set HADES_KUBE=1");
+    const agent = rt.state.findByName("Agent", agentName, namespace);
+    if (!agent) throw new Error(`Agent ${namespace ? namespace + "/" : ""}${agentName} not found`);
+    const ns = agent.metadata?.namespace ?? "default";
+    const tailFlag = args.indexOf("--tail");
+    const tail = tailFlag >= 0 && args[tailFlag + 1] ? Number(args[tailFlag + 1]) : undefined;
+    const text = await rt.kubeClient.logs(ns, `brain-${agentName}`, "brain", tail !== undefined ? { tail } : {});
+    process.stdout.write(text.endsWith("\n") || text === "" ? text : text + "\n");
 }
 
 async function primitives(decision: string | undefined): Promise<void> {

@@ -31,6 +31,8 @@ export interface KubeClient {
     healthz(): Promise<boolean>;
     /** Exec a command in a pod's container. Returns stdout/stderr + exit code. */
     exec(namespace: string, pod: string, container: string, command: string[], stdin?: string): Promise<ExecResult>;
+    /** Stream a pod container's logs. Resolves to the full log text. */
+    logs(namespace: string, pod: string, container: string, opts?: { tail?: number; follow?: boolean }): Promise<string>;
 }
 
 /** A minimal k8s object shape the controller produces. */

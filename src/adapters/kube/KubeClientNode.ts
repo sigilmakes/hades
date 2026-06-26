@@ -156,6 +156,18 @@ export class KubeClientNode implements KubeClient {
         return { code, stdout: stdout.read()?.toString() ?? "", stderr: stderr.read()?.toString() ?? "" };
     }
 
+    async logs(namespace: string, pod: string, container: string, opts: { tail?: number; follow?: boolean } = {}): Promise<string> {
+        const resp = await this.core.readNamespacedPodLog({
+            name: pod,
+            namespace,
+            container,
+            ...(opts.tail !== undefined ? { tailLines: opts.tail } : {}),
+            ...(opts.follow ? { follow: true } : {}),
+        });
+        // readNamespacedPodLog resolves to the log text (string) for non-follow.
+        return typeof resp === "string" ? resp : String(resp ?? "");
+    }
+
     private async createByKind(ns: string, group: string, version: string, kind: string, body: any): Promise<void> {
         if (kind === "Deployment") return void (await this.apps.createNamespacedDeployment({ namespace: ns, body }));
         if (kind === "Service") return void (await this.core.createNamespacedService({ namespace: ns, body }));
