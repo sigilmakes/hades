@@ -5,6 +5,7 @@ import type { EventStorePort } from "../ports/EventStore.js";
 import type { HandsBackend } from "../ports/HandsBackend.js";
 import { PiSdkBrainDriver } from "../adapters/brain/PiSdkBrainDriver.js";
 import { HttpHandsClient } from "../adapters/hands/HttpHandsClient.js";
+import { McpHandsClient } from "../adapters/hands/McpHandsClient.js";
 
 /**
  * The brain pod HTTP server.
@@ -29,7 +30,9 @@ export class BrainPod {
     private readonly driver: BrainDriver;
 
     constructor(options: BrainPodOptions) {
-        const hands = options.hands ?? new HttpHandsClient();
+        // Prefer MCP Streamable HTTP (D2, the standards-aligned wire) when a hands
+        // URL is set; fall back to plain-HTTP hands for P1 compatibility.
+        const hands = options.hands ?? defaultHandsFromEnv();
         const events = options.events ?? noopEventStore;
         const homeRoot = options.homeRoot ?? process.env.HADES_HOME_ROOT ?? "/home/agent";
         this.driver = options.driver ?? defaultDriver(options.mode ?? "pi-sdk", events, hands, homeRoot);
@@ -159,6 +162,29 @@ const noopEventStore: EventStorePort = {
     append: async (_sessionId, type, payload = {}, meta = {}) => ({ id: "evt_brain_pod", sessionId: "brain-pod", type, createdAt: new Date().toISOString(), payload, ...meta }),
     list: async () => [],
 };
+
+/**
+ * Resolve the hands backend from env. Prefers MCP Streamable HTTP (D2) when
+ * `HADES_HANDS_URL` is set; otherwise returns a stub that fails on use (not
+ * on construction) so health/404 checks work without a hands endpoint.
+ * Override by passing `hands` to {@link BrainPodOptions}.
+ */
+function defaultHandsFromEnv(): HandsBackend {
+    const url = process.env.HADES_HANDS_URL;
+    if (!url) return new UnconfiguredHands();
+    return new McpHandsClient(url);
+}
+
+/** A hands backend that fails loudly on use when no hands endpoint is configured. */
+class UnconfiguredHands implements HandsBackend {
+    readonly mode = "unconfigured";
+    private fail(): never {
+        throw new Error("brain pod requires HADES_HANDS_URL (the hands pod endpoint) or an injected hands backend");
+    }
+    async read(): Promise<string> { this.fail(); }
+    async write(): Promise<{ path: string; bytes: number }> { this.fail(); }
+    async exec(): Promise<import("../domain/resources.js").ToolResult> { this.fail(); }
+}
 
 export { nameOf };
 export type { HadesResource };
