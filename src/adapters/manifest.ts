@@ -1,41 +1,28 @@
 import { readFile } from "node:fs/promises";
+import { load as loadYaml } from "js-yaml";
 import type { HadesResource } from "../domain/resources.js";
 
+/**
+ * Load a manifest file (JSON or YAML, single- or multi-document) into Hades
+ * resources. Accepts any valid k8s YAML: multi-doc (--- separators), block
+ * scalars, arrays-of-objects, anchors, quoted strings.
+ */
 export async function loadManifest(file: string): Promise<HadesResource[]> {
     const raw = await readFile(file, "utf8");
     return parseDocuments(raw);
 }
 
+/**
+ * Parse a raw manifest string into Hades resources. Splits on `---` document
+ * separators, then parses each non-empty document as YAML (JSON is a subset of
+ * YAML, so JSON documents parse too). Empty documents (leading/trailing `---`)
+ * are dropped.
+ */
 export function parseDocuments(raw: string): HadesResource[] {
-    return raw.split(/^---\s*$/m).map((doc) => doc.trim()).filter(Boolean).map(parseYamlSubset);
-}
-
-function parseYamlSubset(raw: string): HadesResource {
-    if (raw.trim().startsWith("{")) return JSON.parse(raw);
-    const lines = raw.split("\n");
-    const root: Record<string, any> = {};
-    const stack: Array<{ indent: number; value: Record<string, any> }> = [{ indent: -1, value: root }];
-    for (const rawLine of lines) {
-        if (!rawLine.trim() || rawLine.trim().startsWith("#")) continue;
-        const indent = rawLine.match(/^ */)?.[0].length ?? 0;
-        const line = rawLine.trim();
-        while ((stack.at(-1)?.indent ?? -1) >= indent) stack.pop();
-        const parent = stack.at(-1)?.value ?? root;
-        const [key, ...rest] = line.split(":");
-        const valueText = rest.join(":").trim();
-        if (!valueText) {
-            parent[key] = {};
-            stack.push({ indent, value: parent[key] });
-        } else {
-            parent[key] = parseScalar(valueText);
-        }
-    }
-    return root as HadesResource;
-}
-
-function parseScalar(value: string): string | number | boolean {
-    if (value === "true") return true;
-    if (value === "false") return false;
-    if (/^-?\d+$/.test(value)) return Number(value);
-    return value.replace(/^["']|["']$/g, "");
+    return raw
+        .split(/^---\s*$/m)
+        .map((doc) => doc.trim())
+        .filter(Boolean)
+        .map((doc) => loadYaml(doc) as HadesResource)
+        .filter((resource): resource is HadesResource => resource !== null && typeof resource === "object");
 }

@@ -28,10 +28,12 @@
     "@types/pg": "^8.20.0",
     "croner": "^10.0.1",
     "discord.js": "^14.26.4",
+    "js-yaml": "^5.1.0",
     "matrix-js-sdk": "^41.8.0",
     "pg": "^8.22.0"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^24.0.0",
     "typescript": "^5.8.3"
   },
