@@ -9,6 +9,18 @@ import { createRuntime, type RuntimeOptions } from "./runtime/HadesRuntime.js";
 import type { Runtime } from "./runtime/Runtime.js";
 import { PrimitiveService } from "./services/PrimitiveService.js";
 
+/** Plural/singular aliases for resource kinds (used by `hades get`). */
+const KIND_ALIASES: Record<string, string> = {
+    agents: "Agent", agent: "Agent",
+    homes: "Home", home: "Home",
+    hands: "Hands", hand: "Hands",
+    listeners: "Listener", listener: "Listener",
+    schedules: "Schedule", schedule: "Schedule",
+    runs: "Run", run: "Run",
+    approvals: "Approval", approval: "Approval",
+    grants: "CapabilityGrant", grant: "CapabilityGrant",
+};
+
 const [rawCommand = "help", ...args] = process.argv.slice(2);
 const command = rawCommand === "--help" || rawCommand === "-h" ? "help" : rawCommand;
 const dataDir = dataDirFromEnv();
@@ -22,6 +34,7 @@ try {
     else if (command === "message" || command === "say") await message(args);
     else if (command === "events" || command === "tail") await events(args[0]);
     else if (command === "state") console.log(JSON.stringify(await (await runtime()).snapshot(), null, 4));
+    else if (command === "get") await get(args);
     else if (command === "primitives") await primitives(args[0]);
     else if (command === "serve") await serve(args);
     else if (command === "controller") await controller(args);
@@ -44,6 +57,9 @@ Commands:
   say [opts] <agent> <txt>     send a prompt to an agent
   tail [session]               print durable events
   state                        print resource state
+  get <kind> [name]           list resources (kubectl-style table)
+                              kind: agents, homes, hands, listeners,
+                              schedules, runs, approvals, grants
   primitives [decision]        list researched AgentOS primitives
                                decision: adopt, defer, or reject
   serve [port]                 start the Hades API server
@@ -115,6 +131,55 @@ async function message(args: string[]): Promise<void> {
 async function events(session: string | undefined): Promise<void> {
     const rows = await (await runtime()).events.list(session);
     for (const event of rows) console.log(JSON.stringify(event));
+}
+
+async function get(args: string[]): Promise<void> {
+    const { namespace, rest } = parseNamespace(args);
+    const kindArg = rest[0];
+    if (!kindArg) throw new Error("get requires a kind: agents, homes, hands, listeners, schedules, runs, approvals, grants");
+    const kind = KIND_ALIASES[kindArg.toLowerCase()];
+    if (!kind) throw new Error(`Unknown kind ${kindArg}. Known: ${Object.keys(KIND_ALIASES).join(", ")}`);
+    const name = rest[1];
+    const rt = await runtime();
+    if (name) {
+        const resource = rt.state.findByName(kind as never, name, namespace);
+        if (!resource) { console.error(`hades: ${kind} ${namespace ? namespace + "/" : ""}${name} not found`); process.exitCode = 1; return; }
+        console.log(JSON.stringify(resource, null, 2));
+        return;
+    }
+    const resources = rt.state.list(kind as never, namespace);
+    if (resources.length === 0) { console.log("No resources found."); return; }
+    printTable(kind, resources);
+}
+
+/** Print a kubectl-style table for a resource list. */
+function printTable(kind: string, resources: { metadata?: { name?: string; namespace?: string }; status?: Record<string, unknown>; spec?: Record<string, unknown> }[]): void {
+    const rows = resources.map((r) => ({
+        NAME: r.metadata?.name ?? "",
+        NAMESPACE: r.metadata?.namespace ?? "default",
+        PHASE: String(r.status?.phase ?? "-"),
+        DETAIL: detailFor(kind, r),
+    }));
+    const headers = ["NAME", "NAMESPACE", "PHASE", "DETAIL"];
+    const widths = headers.map((h) => Math.max(h.length, ...rows.map((r) => String(r[h as keyof typeof r]).length)));
+    const fmt = (cells: string[]) => cells.map((c, i) => String(c).padEnd(widths[i])).join("  ").trimEnd();
+    console.log(fmt(headers));
+    for (const r of rows) console.log(fmt([r.NAME, r.NAMESPACE, r.PHASE, r.DETAIL]));
+}
+
+/** A one-line detail column per kind (the most useful single field). */
+function detailFor(kind: string, r: { spec?: Record<string, unknown>; status?: Record<string, unknown> }): string {
+    switch (kind) {
+        case "Agent": return `${r.spec?.lifecycle ?? "resident"}/${r.spec?.desiredState ?? "?"}`;
+        case "Home": return String(r.spec?.size ?? "-");
+        case "Hands": return String(r.spec?.agentRef ?? "-");
+        case "Listener": return String(r.spec?.platform ?? "-");
+        case "Schedule": return `${r.spec?.type ?? "?"}: ${r.spec?.schedule ?? ""}`;
+        case "Run": return String(r.spec?.agentRef ?? "-");
+        case "Approval": return String(r.spec?.action ?? "-");
+        case "CapabilityGrant": return String((r.spec?.subject as { name?: string } | undefined)?.name ?? "-");
+        default: return "-";
+    }
 }
 
 async function primitives(decision: string | undefined): Promise<void> {
