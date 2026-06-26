@@ -9,6 +9,18 @@ import { createRuntime, type RuntimeOptions } from "./runtime/HadesRuntime.js";
 import type { Runtime } from "./runtime/Runtime.js";
 import { PrimitiveService } from "./services/PrimitiveService.js";
 
+/** Plural/singular aliases for resource kinds (used by `hades get`/`delete`). */
+const KIND_ALIASES: Record<string, string> = {
+    agents: "Agent", agent: "Agent",
+    homes: "Home", home: "Home",
+    hands: "Hands", hand: "Hands",
+    listeners: "Listener", listener: "Listener",
+    schedules: "Schedule", schedule: "Schedule",
+    runs: "Run", run: "Run",
+    approvals: "Approval", approval: "Approval",
+    grants: "CapabilityGrant", grant: "CapabilityGrant",
+};
+
 const [rawCommand = "help", ...args] = process.argv.slice(2);
 const command = rawCommand === "--help" || rawCommand === "-h" ? "help" : rawCommand;
 const dataDir = dataDirFromEnv();
@@ -18,10 +30,13 @@ try {
     if (command === "help") help();
     else if (command === "init") await initEmpty();
     else if (command === "apply" || command === "up") await apply(args[0]);
+    else if (command === "delete") await remove(args);
     else if (command === "reconcile") await reconcile();
     else if (command === "message" || command === "say") await message(args);
     else if (command === "events" || command === "tail") await events(args[0]);
+    else if (command === "logs") await logs(args);
     else if (command === "state") console.log(JSON.stringify(await (await runtime()).snapshot(), null, 4));
+    else if (command === "get") await get(args);
     else if (command === "primitives") await primitives(args[0]);
     else if (command === "serve") await serve(args);
     else if (command === "controller") await controller(args);
@@ -40,10 +55,15 @@ function help(): void {
 Commands:
   init                         initialize an empty Hades data directory
   apply|up <file>              apply JSON/YAML-subset resource documents
+  delete <kind> <name>         remove a resource (agents, schedules, ...)
   reconcile                    run controllers once
   say [opts] <agent> <txt>     send a prompt to an agent
   tail [session]               print durable events
+  logs <agent> [--tail N]     stream a brain pod's stdout (HADES_KUBE=1)
   state                        print resource state
+  get <kind> [name]           list resources (kubectl-style table)
+                              kind: agents, homes, hands, listeners,
+                              schedules, runs, approvals, grants
   primitives [decision]        list researched AgentOS primitives
                                decision: adopt, defer, or reject
   serve [port]                 start the Hades API server
@@ -97,6 +117,19 @@ async function apply(file: string | undefined): Promise<void> {
     console.log(`applied ${resources.length} resource(s)`);
 }
 
+async function remove(args: string[]): Promise<void> {
+    const { namespace, rest } = parseNamespace(args);
+    const kindArg = rest[0];
+    const name = rest[1];
+    if (!kindArg || !name) throw new Error("delete requires a kind and name: hades delete <kind> <name> [--namespace ns]");
+    const kind = KIND_ALIASES[kindArg.toLowerCase()] ?? kindArg;
+    const rt = await runtime();
+    const existed = await rt.remove(kind as never, namespace, name);
+    if (!existed) { console.error(`hades: ${kind} ${namespace ? namespace + "/" : ""}${name} not found`); process.exitCode = 1; return; }
+    await rt.reconcile();
+    console.log(`deleted ${kind} ${namespace}/${name}`);
+}
+
 async function reconcile(): Promise<void> {
     await (await runtime()).reconcile();
     console.log("reconciled");
@@ -117,6 +150,70 @@ async function events(session: string | undefined): Promise<void> {
     for (const event of rows) console.log(JSON.stringify(event));
 }
 
+async function get(args: string[]): Promise<void> {
+    const { namespace, rest } = parseNamespace(args);
+    const kindArg = rest[0];
+    if (!kindArg) throw new Error("get requires a kind: agents, homes, hands, listeners, schedules, runs, approvals, grants");
+    const kind = KIND_ALIASES[kindArg.toLowerCase()];
+    if (!kind) throw new Error(`Unknown kind ${kindArg}. Known: ${Object.keys(KIND_ALIASES).join(", ")}`);
+    const name = rest[1];
+    const rt = await runtime();
+    if (name) {
+        const resource = rt.state.findByName(kind as never, name, namespace);
+        if (!resource) { console.error(`hades: ${kind} ${namespace ? namespace + "/" : ""}${name} not found`); process.exitCode = 1; return; }
+        console.log(JSON.stringify(resource, null, 2));
+        return;
+    }
+    const resources = rt.state.list(kind as never, namespace);
+    if (resources.length === 0) { console.log("No resources found."); return; }
+    printTable(kind, resources);
+}
+
+/** Print a kubectl-style table for a resource list. */
+function printTable(kind: string, resources: { metadata?: { name?: string; namespace?: string }; status?: Record<string, unknown>; spec?: Record<string, unknown> }[]): void {
+    const rows = resources.map((r) => ({
+        NAME: r.metadata?.name ?? "",
+        NAMESPACE: r.metadata?.namespace ?? "default",
+        PHASE: String(r.status?.phase ?? "-"),
+        DETAIL: detailFor(kind, r),
+    }));
+    const headers = ["NAME", "NAMESPACE", "PHASE", "DETAIL"];
+    const widths = headers.map((h) => Math.max(h.length, ...rows.map((r) => String(r[h as keyof typeof r]).length)));
+    const fmt = (cells: string[]) => cells.map((c, i) => String(c).padEnd(widths[i])).join("  ").trimEnd();
+    console.log(fmt(headers));
+    for (const r of rows) console.log(fmt([r.NAME, r.NAMESPACE, r.PHASE, r.DETAIL]));
+}
+
+/** A one-line detail column per kind (the most useful single field). */
+function detailFor(kind: string, r: { spec?: Record<string, unknown>; status?: Record<string, unknown> }): string {
+    switch (kind) {
+        case "Agent": return `${r.spec?.lifecycle ?? "resident"}/${r.spec?.desiredState ?? "?"}`;
+        case "Home": return String(r.spec?.size ?? "-");
+        case "Hands": return String(r.spec?.agentRef ?? "-");
+        case "Listener": return String(r.spec?.platform ?? "-");
+        case "Schedule": return `${r.spec?.type ?? "?"}: ${r.spec?.schedule ?? ""}`;
+        case "Run": return String(r.spec?.agentRef ?? "-");
+        case "Approval": return String(r.spec?.action ?? "-");
+        case "CapabilityGrant": return String((r.spec?.subject as { name?: string } | undefined)?.name ?? "-");
+        default: return "-";
+    }
+}
+
+async function logs(args: string[]): Promise<void> {
+    const { namespace, rest } = parseNamespace(args);
+    const agentName = rest[0];
+    if (!agentName) throw new Error("logs requires an agent name: hades logs <agent> [--tail N]");
+    const rt = await runtime();
+    if (!rt.kubeClient) throw new Error("hades logs needs a live cluster — set HADES_KUBE=1");
+    const agent = rt.state.findByName("Agent", agentName, namespace);
+    if (!agent) throw new Error(`Agent ${namespace ? namespace + "/" : ""}${agentName} not found`);
+    const ns = agent.metadata?.namespace ?? "default";
+    const tailFlag = args.indexOf("--tail");
+    const tail = tailFlag >= 0 && args[tailFlag + 1] ? Number(args[tailFlag + 1]) : undefined;
+    const text = await rt.kubeClient.logs(ns, `brain-${agentName}`, "brain", tail !== undefined ? { tail } : {});
+    process.stdout.write(text.endsWith("\n") || text === "" ? text : text + "\n");
+}
+
 async function primitives(decision: string | undefined): Promise<void> {
     const rows = new PrimitiveService().list(parsePrimitiveDecision(decision));
     console.log(JSON.stringify(rows, null, 4));
@@ -128,21 +225,47 @@ async function serve(args: string[]): Promise<void> {
     const port = Number(args[0] ?? process.env.PORT ?? 7347);
     const server = createServer(rt);
     server.listen(port, () => console.log(`hades-api listening on :${port}, data=${dataDir}`));
+    installShutdown(rt, server);
+}
+
+/**
+ * Drain on SIGTERM/SIGINT: stop accepting connections, finish in-flight
+ * requests, close the runtime (DB handles), then exit. k8s sends SIGTERM
+ * with a grace period; a clean drain prevents dropped requests and
+ * half-written SQLite state.
+ */
+function installShutdown(rt: Runtime, server: import("node:http").Server): void {
+    let shuttingDown = false;
+    const shutdown = async (signal: string) => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        console.log(`\nhades: ${signal} received, draining…`);
+        server.close();
+        try {
+            await rt.shutdown();
+        } catch (error) {
+            console.error(`hades: shutdown error: ${error instanceof Error ? error.message : error}`);
+        }
+        process.exit(0);
+    };
+    process.on("SIGTERM", () => void shutdown("SIGTERM"));
+    process.on("SIGINT", () => void shutdown("SIGINT"));
 }
 
 async function controller(args: string[]): Promise<void> {
     const rt = await runtime();
-    const intervalMs = Number(args[0] ?? process.env.HADES_RECONCILE_INTERVAL_MS ?? 5000);
+    const resyncMs = Number(args[0] ?? process.env.HADES_RECONCILE_INTERVAL_MS ?? 30000);
     if (!rt.kubeClient) console.warn("hades controller: HADES_KUBE not set — reconciling local state only (no live cluster)");
     await rt.reconcile();
-    console.log(`hades controller reconciling every ${intervalMs}ms (data=${dataDir})`);
-    setInterval(() => {
-        rt.reconcile().catch((error) => console.error(`reconcile failed: ${error instanceof Error ? error.message : error}`));
-    }, intervalMs);
+    // Event-driven: reconcile on state mutation (debounced), with a periodic
+    // resync as a safety net for drift the change stream misses.
+    if (rt.controller) rt.controller.start(resyncMs);
+    console.log(`hades controller running (event-driven, resync every ${resyncMs}ms, data=${dataDir})`);
     // The control plane also serves the API on PORT (default 7347).
     const port = Number(process.env.PORT ?? 7347);
     const server = createServer(rt);
     server.listen(port, () => console.log(`hades-api listening on :${port}, data=${dataDir}`));
+    installShutdown(rt, server);
 }
 
 async function demo(): Promise<void> {

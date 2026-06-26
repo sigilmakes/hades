@@ -1,5 +1,14 @@
 import type { HadesKind, HadesResource, HadesState } from "../domain/resources.js";
 
+/** A mutation of the state store, broadcast to subscribers. */
+export interface StateChange {
+    kind: HadesKind;
+    namespace: string;
+    name: string;
+    /** "apply" (create or update) or "remove". */
+    op: "apply" | "remove";
+}
+
 export interface StateStorePort {
     state: HadesState;
     init(): Promise<void>;
@@ -12,4 +21,8 @@ export interface StateStorePort {
     get(kind: HadesKind, namespace: string, name: string): HadesResource | undefined;
     list(kind: HadesKind, namespace?: string): HadesResource[];
     findByName(kind: HadesKind, name: string, namespace?: string): HadesResource | undefined;
+    /** Stream state mutations after subscription. Returns an unsubscribe fn. */
+    subscribe?(handler: (change: StateChange) => void): () => void;
+    /** Release resources (DB handles). Optional; no-op for in-memory stores. */
+    close?(): Promise<void>;
 }

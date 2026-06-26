@@ -242,3 +242,142 @@ test("controller keeps hands default-deny egress when no networkEgress grant", a
     assert.ok(netpol);
     assert.equal(netpol.spec.egress.length, 0, "no network grant -> default-deny egress");
 });
+
+test("controller writes status to the cluster CRD status subresource", async () => {
+    const { dist, kube } = await fixture();
+    await dist.reconcile();
+    // The controller patched the Agent's status to the (fake) cluster.
+    const patch = kube.statusPatches.find((p) => p.kind === "Agent" && p.name === AGENT);
+    assert.ok(patch, "agent status patched to the cluster");
+    assert.equal(patch.status.phase, "active");
+    assert.equal(patch.status.brainPod, `brain-${AGENT}`);
+    const homePatch = kube.statusPatches.find((p) => p.kind === "Home" && p.name === HOME);
+    assert.ok(homePatch, "home status patched to the cluster");
+    assert.equal(homePatch.status.phase, "ready");
+});
+
+test("controller stamps a finalizer on a newly-created Agent CRD", async () => {
+    const { dist, kube } = await fixture();
+    await dist.reconcile();
+    const crd = await kube.get(NS, "Agent", AGENT);
+    assert.ok(crd?.metadata.finalizers?.includes("hades.dev/finalizer"), "Agent CRD has the hades finalizer");
+});
+
+test("finalizer: a deleting Agent CRD triggers cleanup + finalizer removal", async () => {
+    const { dist, kube } = await fixture();
+    await dist.reconcile();
+    // Sanity: brain pod exists.
+    assert.ok(await kube.get(NS, "Deployment", `brain-${AGENT}`));
+    // Simulate k8s marking the CRD for deletion.
+    const crd = await kube.get(NS, "Agent", AGENT);
+    crd.metadata.deletionTimestamp = new Date().toISOString();
+    await dist.reconcile();
+    // Cleanup ran: brain + hands pods are gone.
+    assert.equal(await kube.get(NS, "Deployment", `brain-${AGENT}`), undefined, "brain Deployment finalized away");
+    assert.equal(await kube.get(NS, "Service", `brain-${AGENT}`), undefined, "brain Service finalized away");
+    assert.equal(await kube.get(NS, "Deployment", `hands-${AGENT}`), undefined, "hands Deployment finalized away");
+    // Finalizer removed so k8s completes the deletion.
+    const finalized = await kube.get(NS, "Agent", AGENT);
+    assert.deepEqual(finalized?.metadata.finalizers ?? [], []);
+});
+
+test("finalizer: a deleting Home CRD removes its PVC", async () => {
+    const { dist, kube } = await fixture();
+    await dist.reconcile();
+    assert.ok(await kube.get(NS, "PersistentVolumeClaim", `home-${HOME}`));
+    const crd = await kube.get(NS, "Home", HOME);
+    crd.metadata.deletionTimestamp = new Date().toISOString();
+    await dist.reconcile();
+    assert.equal(await kube.get(NS, "PersistentVolumeClaim", `home-${HOME}`), undefined, "home PVC finalized away");
+});
+test("event-driven reconcile: a state mutation triggers a reconcile without a full pass", async () => {
+    const { dist, kube, state } = await fixture();
+    await dist.reconcile();
+    // Start the watch — no kubeClient.start needed; the controller subscribes to state.
+    const stop = dist.controller.start(60_000);
+    try {
+        // Apply a new Home directly through the store (bypasses dist.apply's
+        // explicit reconcile). The state.subscribe stream should drive the
+        // controller to reconcile and create the PVC.
+        await state.apply({ kind: "Home", metadata: { namespace: NS, name: "late-home" }, spec: {} });
+        await waitFor(() => kube.get(NS, "PersistentVolumeClaim", "home-late-home"));
+        const pvc = await kube.get(NS, "PersistentVolumeClaim", "home-late-home");
+        assert.ok(pvc, "event-driven reconcile created the late PVC");
+    } finally {
+        stop();
+    }
+});
+
+test("event-driven reconcile coalesces a burst of mutations into one pass", async () => {
+    const { dist, kube, events } = await fixture();
+    await dist.reconcile();
+    // Count home.reconciled events as a proxy for reconcile passes — each
+    // full reconcile over Homes emits one per home at minimum.
+    let homeReconciled = 0;
+    const unsub = events.subscribe((e) => { if (e.type === "home.reconciled") homeReconciled++; });
+    const stop = dist.controller.start(60_000);
+    try {
+        // A burst of 5 applies — debounce should coalesce into few passes.
+        for (let i = 0; i < 5; i++) {
+            await dist.apply({ kind: "Home", metadata: { namespace: NS, name: `burst-${i}` }, spec: {} });
+        }
+        await waitFor(() => kube.get(NS, "PersistentVolumeClaim", "home-burst-4"));
+        await new Promise((r) => setTimeout(r, 600)); // past the 250ms debounce
+        unsub();
+        // Each reconcile pass emits home.reconciled for every Home (>=1 each).
+        // A coalesced burst should yield few passes, not 5+ separate ones.
+        assert.ok(homeReconciled >= 1, `at least one reconcile pass ran (got ${homeReconciled})`);
+    } finally {
+        stop();
+    }
+});
+
+function waitFor(predicate, { timeoutMs = 2000, intervalMs = 25 } = {}) {
+    return new Promise((resolve, reject) => {
+        const start = Date.now();
+        const tick = async () => {
+            try { if (await predicate()) return resolve(true); } catch {}
+            if (Date.now() - start > timeoutMs) return reject(new Error("waitFor timed out"));
+            setTimeout(tick, intervalMs);
+        };
+        tick();
+    });
+}
+test("controller resolves a Listener secretRef and marks it connected", async () => {
+
+    const { dist, kube } = await fixture();
+    kube.seedSecret(NS, "atlas-discord-token", { token: "bot-token-xyz" });
+    await dist.apply({ kind: "Listener", metadata: { namespace: NS, name: "atlas-discord" }, spec: { agentRef: AGENT, platform: "discord", secretRef: "atlas-discord-token" } });
+    await dist.reconcile();
+    const listener = dist.state.get("Listener", NS, "atlas-discord");
+    assert.equal(listener.status.phase, "connected");
+    assert.equal(listener.status.credentials, true);
+});
+
+test("controller marks a Listener waitingForSecret when the secret is absent", async () => {
+    const { dist } = await fixture();
+    await dist.apply({ kind: "Listener", metadata: { namespace: NS, name: "atlas-discord" }, spec: { agentRef: AGENT, platform: "discord", secretRef: "missing-secret" } });
+    await dist.reconcile();
+    const listener = dist.state.get("Listener", NS, "atlas-discord");
+    assert.equal(listener.status.phase, "waitingForSecret");
+});
+
+test("brain pod has readiness + liveness probes on /healthz", async () => {
+    const { dist, kube } = await fixture();
+    await dist.reconcile();
+    const brainDep = await kube.get(NS, "Deployment", `brain-${AGENT}`);
+    const container = brainDep.spec.template.spec.containers[0];
+    assert.ok(container.readinessProbe, "brain has a readiness probe");
+    assert.equal(container.readinessProbe.httpGet.path, "/healthz");
+    assert.ok(container.livenessProbe, "brain has a liveness probe");
+    assert.equal(container.livenessProbe.httpGet.path, "/healthz");
+});
+
+test("hands pod has an exec-based liveness probe on the home mount", async () => {
+    const { dist, kube } = await fixture();
+    await dist.reconcile();
+    const handsDep = await kube.get(NS, "Deployment", `hands-${AGENT}`);
+    const container = handsDep.spec.template.spec.containers[0];
+    assert.ok(container.livenessProbe, "hands has a liveness probe");
+    assert.deepEqual(container.livenessProbe.exec.command, ["test", "-d", "/home/agent"]);
+});

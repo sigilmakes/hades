@@ -473,7 +473,7 @@ test("candidate primitive resources are not accepted before behavior exists", as
     for (const kind of candidateKinds) {
         await assert.rejects(
             runtime.apply({ kind, metadata: { namespace: "hades-system", name: "candidate" }, spec: {} }),
-            new RegExp(`Unsupported kind ${kind}`),
+            new RegExp(`unknown kind '${kind}'`),
         );
         assert.equal(crds.includes(`kind: ${kind}`), false, `${kind} should not have a CRD before behavior exists`);
     }

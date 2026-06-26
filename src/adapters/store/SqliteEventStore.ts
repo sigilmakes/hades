@@ -25,6 +25,7 @@ export class SqliteEventStore implements EventStorePort {
     readonly dataDir: string;
     readonly dbPath: string;
     private db!: DatabaseSync;
+    private closed = false;
     private subscribers: Array<(event: HadesEvent) => void> = [];
     private seq = 0;
 
@@ -93,19 +94,30 @@ export class SqliteEventStore implements EventStorePort {
         };
     }
 
-    close(): void {
+    async close(): Promise<void> {
+        if (this.closed) return;
+        this.closed = true;
         this.db?.close();
     }
 }
 
-function rowToEvent(row: any): HadesEvent {
-    const meta = JSON.parse(row.meta ?? "{}");
+type EventRow = {
+    id: number | string;
+    session_id: string;
+    type: string;
+    created_at: string;
+    payload: string;
+    meta: string;
+};
+
+function rowToEvent(row: EventRow): HadesEvent {
+    const meta = JSON.parse(row.meta ?? "{}") as Record<string, unknown>;
     return {
-        id: row.id,
+        id: String(row.id),
         sessionId: row.session_id,
         type: row.type,
         createdAt: row.created_at,
-        payload: JSON.parse(row.payload ?? "{}"),
+        payload: JSON.parse(row.payload ?? "{}") as Record<string, unknown>,
         ...meta,
     };
 }

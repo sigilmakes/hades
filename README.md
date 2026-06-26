@@ -1,5 +1,7 @@
 # Hades
 
+[![CI](https://github.com/sigilmakes/hades/actions/workflows/ci.yml/badge.svg)](https://github.com/sigilmakes/hades/actions/workflows/ci.yml)
+
 Hades is a **Kubernetes-native agent operating system**: a small kernel that
 supervises agent workloads — brains, hands, listeners — as disposable pods,
 while durable state (sessions, homes, capabilities) survives every crash.

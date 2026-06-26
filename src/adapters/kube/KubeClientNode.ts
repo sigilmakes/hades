@@ -2,6 +2,16 @@ import * as k8s from "@kubernetes/client-node";
 import { PassThrough } from "node:stream";
 import type { KubeClient, KubeObject, ExecResult } from "../../ports/KubeClient.js";
 
+/** A k8s API error carries a numeric statusCode (the client throws objects, not Error). */
+function kubeStatus(error: unknown): number | undefined {
+    if (error && typeof error === "object") {
+        const e = error as { statusCode?: number; code?: number };
+        if (typeof e.statusCode === "number") return e.statusCode;
+        if (typeof e.code === "number") return e.code;
+    }
+    return undefined;
+}
+
 /**
  * A real {@link KubeClient} backed by `@kubernetes/client-node` for deploy
  * mode. Loads cluster config from the standard locations (in-cluster
@@ -48,8 +58,8 @@ export class KubeClientNode implements KubeClient {
             // is rejected anyway.
             await this.createByKind(namespace, group, version, kind, body);
             return name;
-        } catch (error: any) {
-            if (error?.statusCode === 409 || error?.code === 409) return name; // exists
+        } catch (error: unknown) {
+            if (kubeStatus(error) === 409) return name; // exists
             throw error;
         }
     }
@@ -58,10 +68,25 @@ export class KubeClientNode implements KubeClient {
         try {
             await this.deleteByKind(namespace, kind, name);
             return true;
-        } catch (error: any) {
-            if (error?.statusCode === 404 || error?.code === 404) return false;
+        } catch (error: unknown) {
+            if (kubeStatus(error) === 404) return false;
             throw error;
         }
+    }
+
+    async patchMetadata(namespace: string, kind: string, name: string, patch: Record<string, unknown>): Promise<void> {
+        // Native objects: strategic-merge patch of metadata.
+        if (kind === "Deployment") { await this.apps.patchNamespacedDeployment({ name, namespace, body: { metadata: patch } }); return; }
+        if (kind === "Service") { await this.core.patchNamespacedService({ name, namespace, body: { metadata: patch } }); return; }
+        if (kind === "PersistentVolumeClaim") { await this.core.patchNamespacedPersistentVolumeClaim({ name, namespace, body: { metadata: patch } }); return; }
+        if (kind === "CronJob") { await this.batch.patchNamespacedCronJob({ name, namespace, body: { metadata: patch } }); return; }
+        if (kind === "NetworkPolicy") { await this.networking.patchNamespacedNetworkPolicy({ name, namespace, body: { metadata: patch } }); return; }
+        // Hades CRDs: strategic-merge patch via customObjects.
+        const plural = pluralize(kind);
+        await this.customObjects.patchNamespacedCustomObject({
+            group: "hades.dev", version: "v1alpha1", namespace, plural, name,
+            body: { metadata: patch },
+        });
     }
 
     async list(namespace: string, kind: string): Promise<KubeObject[]> {
@@ -72,6 +97,30 @@ export class KubeClientNode implements KubeClient {
     async get(namespace: string, kind: string, name: string): Promise<KubeObject | undefined> {
         try {
             return await this.getByKind(namespace, kind, name);
+        } catch (error: unknown) {
+            if (kubeStatus(error) === 404) return undefined;
+            throw error;
+        }
+    }
+
+    async patchStatus(namespace: string, kind: string, name: string, status: Record<string, unknown>): Promise<void> {
+        const plural = pluralize(kind);
+        const opts = { headers: { "content-type": "application/merge-patch+json" } };
+        await this.customObjects.patchNamespacedCustomObjectStatus({
+            group: "hades.dev", version: "v1alpha1", namespace, plural, name, body: { status }, ...opts,
+        });
+    }
+
+    async getSecret(namespace: string, name: string): Promise<Record<string, string> | undefined> {
+        try {
+            const secret = await this.core.readNamespacedSecret({ name, namespace });
+            const data = (secret as { data?: Record<string, string> }).data ?? {};
+            // k8s Secret data is base64-encoded; decode it.
+            const decoded: Record<string, string> = {};
+            for (const [key, value] of Object.entries(data)) {
+                decoded[key] = Buffer.from(value, "base64").toString("utf8");
+            }
+            return decoded;
         } catch (error: any) {
             if (error?.statusCode === 404 || error?.code === 404) return undefined;
             throw error;
@@ -105,6 +154,18 @@ export class KubeClientNode implements KubeClient {
         });
         await done;
         return { code, stdout: stdout.read()?.toString() ?? "", stderr: stderr.read()?.toString() ?? "" };
+    }
+
+    async logs(namespace: string, pod: string, container: string, opts: { tail?: number; follow?: boolean } = {}): Promise<string> {
+        const resp = await this.core.readNamespacedPodLog({
+            name: pod,
+            namespace,
+            container,
+            ...(opts.tail !== undefined ? { tailLines: opts.tail } : {}),
+            ...(opts.follow ? { follow: true } : {}),
+        });
+        // readNamespacedPodLog resolves to the log text (string) for non-follow.
+        return typeof resp === "string" ? resp : String(resp ?? "");
     }
 
     private async createByKind(ns: string, group: string, version: string, kind: string, body: any): Promise<void> {

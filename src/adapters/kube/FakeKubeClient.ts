@@ -15,7 +15,11 @@ export class FakeKubeClient implements KubeClient {
     async ensure(namespace: string, object: KubeObject): Promise<string> {
         const name = object.metadata.name;
         const key = this.key(namespace, object.kind, name);
-        this.objects.set(key, { ...object, metadata: { ...object.metadata, namespace } });
+        const hadesKinds = new Set(["Agent", "Home", "Hands", "Session", "BrainBinding", "Listener", "Schedule", "Run", "Approval", "CapabilityGrant", "AgentClass"]);
+        // Stamp a synthetic uid on Hades CRDs (a real cluster assigns one) so
+        // ownerReferences resolve in tests.
+        const uid = hadesKinds.has(object.kind) ? `fake-${object.kind}-${name}` : object.metadata.uid;
+        this.objects.set(key, { ...object, metadata: { ...object.metadata, namespace, ...(uid ? { uid } : {}) } });
         return name;
     }
 
@@ -24,8 +28,14 @@ export class FakeKubeClient implements KubeClient {
         return this.objects.delete(key);
     }
 
+    async patchMetadata(namespace: string, kind: string, name: string, patch: Record<string, unknown>): Promise<void> {
+        const obj = await this.get(namespace, kind, name);
+        if (!obj) return;
+        obj.metadata = { ...obj.metadata, ...patch };
+    }
+
     async list(namespace: string, kind: string): Promise<KubeObject[]> {
-        const prefix = `${namespace}/${kind}/`;
+        const _prefix = `${namespace}/${kind}/`;
         return [...this.objects.values()].filter((obj) => {
             const objNs = obj.metadata.namespace ?? namespace;
             return objNs === namespace && obj.kind === kind;
@@ -37,17 +47,30 @@ export class FakeKubeClient implements KubeClient {
     }
 
     async get(namespace: string, kind: string, name: string): Promise<KubeObject | undefined> {
-        const existing = this.objects.get(this.key(namespace, kind, name));
-        if (existing) return existing;
-        // Hades CRDs (Agent/Home/Hands/Schedule/...) are the owners of native
-        // objects. In a real cluster they exist as CRDs with server-assigned
-        // uids. The fake synthesizes a uid so ownerReferences resolve in tests.
-        const hadesKinds = new Set(["Agent", "Home", "Hands", "Session", "BrainBinding", "Listener", "Schedule", "Run", "Approval", "CapabilityGrant", "AgentClass"]);
-        if (hadesKinds.has(kind)) {
-            return { apiVersion: "hades.dev/v1alpha1", kind, metadata: { name, namespace, uid: `fake-${kind}-${name}` } };
-        }
-        return undefined;
+        return this.objects.get(this.key(namespace, kind, name));
     }
+
+    async patchStatus(namespace: string, kind: string, name: string, status: Record<string, unknown>): Promise<void> {
+        // Record the status patch on the fake object so tests can assert it was called.
+        const key = this.key(namespace, kind, name);
+        const existing = this.objects.get(key);
+        if (existing) existing.status = { ...(existing.status ?? {}), ...status };
+        this.statusPatches.push({ namespace, kind, name, status });
+    }
+
+    /** Status patches the controller issued (test assertions). */
+    readonly statusPatches: Array<{ namespace: string; kind: string; name: string; status: Record<string, unknown> }> = [];
+
+    async getSecret(namespace: string, name: string): Promise<Record<string, string> | undefined> {
+        const secret = this.secrets.get(this.key(namespace, "Secret", name));
+        return secret ? { ...secret } : undefined;
+    }
+
+    /** Seed a fake Secret (test helper). */
+    seedSecret(namespace: string, name: string, data: Record<string, string>): void {
+        this.secrets.set(this.key(namespace, "Secret", name), data);
+    }
+    private readonly secrets = new Map<string, Record<string, string>>();
 
     async exec(_namespace: string, _pod: string, _container: string, command: string[], _stdin?: string): Promise<ExecResult> {
         // The fake client cannot exec into a real pod. Tests that need exec
@@ -55,6 +78,13 @@ export class FakeKubeClient implements KubeClient {
         // ensured objects rather than execution results.
         void command;
         throw new Error("FakeKubeClient cannot exec into pods; inject a custom KubeClient for exec tests");
+    }
+
+    /** Per-pod log text, keyed by `${namespace}/${pod}`. Seed via {@link seedLogs}. */
+    readonly podLogs = new Map<string, string>();
+    seedLogs(namespace: string, pod: string, text: string): void { this.podLogs.set(`${namespace}/${pod}`, text); }
+    async logs(namespace: string, pod: string, _container: string): Promise<string> {
+        return this.podLogs.get(`${namespace}/${pod}`) ?? "";
     }
 
     private key(namespace: string, kind: string, name: string): string {

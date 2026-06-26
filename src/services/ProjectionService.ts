@@ -1,7 +1,6 @@
-import type { HadesResource } from "../domain/resources.js";
+import { nameOf, namespaceOf } from "../domain/resources.js";
 import type { EventStorePort } from "../ports/EventStore.js";
 import type { StateStorePort } from "../ports/StateStore.js";
-import { nameOf, namespaceOf } from "../domain/resources.js";
 
 /**
  * Projections: derived views over durable state + events (docs/control-plane.md). The UI and

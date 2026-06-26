@@ -36,10 +36,16 @@ spec:
               mountPath: /var/lib/hades
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /readyz
               port: http
             initialDelaySeconds: 3
             periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
       volumes:
         - name: data
           # Single-node dev. For multi-node, swap to a shared StorageClass

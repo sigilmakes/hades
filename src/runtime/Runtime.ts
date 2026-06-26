@@ -1,4 +1,5 @@
-import { type AgentSubject, type HadesResource, type HadesState, nameOf, namespaceOf } from "../domain/resources.js";
+import { type AgentSubject, type HadesKind, type HadesResource, type HadesState } from "../domain/resources.js";
+import { validateResource } from "../domain/validate.js";
 import type { EventStorePort } from "../ports/EventStore.js";
 import type { StateStorePort } from "../ports/StateStore.js";
 import type { AgentService } from "../services/AgentService.js";
@@ -13,6 +14,7 @@ import type { ScheduleService } from "../services/ScheduleService.js";
 import type { SyscallService } from "../services/SyscallService.js";
 import type { ProjectionService } from "../services/ProjectionService.js";
 import type { KubeClient } from "../ports/KubeClient.js";
+import type { KubeController } from "../controller/KubeController.js";
 
 /**
  * A Hades runtime — the kernel services wired against stores + ports.
@@ -27,6 +29,16 @@ import type { KubeClient } from "../ports/KubeClient.js";
  * pods. The in-process adapters exist so the kernel is testable without a
  * cluster — they are test injections, not a peer runtime.
  */
+
+/**
+ * Compare two versions of a resource for a meaningful change. Status is
+ * runtime-owned (the controller writes it), so it's ignored — only spec
+ * and the user-settable metadata (labels/annotations) count as a change.
+ */
+function specChanged(prev: HadesResource, next: HadesResource): boolean {
+    return JSON.stringify(prev.spec ?? {}) !== JSON.stringify(next.spec ?? {});
+}
+
 export abstract class Runtime {
     constructor(
         readonly dataDir: string,
@@ -45,18 +57,62 @@ export abstract class Runtime {
         readonly projections: ProjectionService,
         /** The k8s client, if a live cluster is attached (absent in tests). */
         readonly kubeClient?: KubeClient,
+        /** The k8s controller, set by {@link HadesRuntime} when a cluster is attached. */
+        protected readonly kubeController?: KubeController,
     ) {}
 
     abstract init(): Promise<this>;
 
+    /** True once init() has completed and the runtime is ready to serve traffic. */
+    ready = false;
+
+    /**
+     * Drain in-flight work and release resources (state store handles, the
+     * controller watch). Idempotent. Called on SIGTERM so the process exits
+     * cleanly within k8s' terminationGracePeriodSeconds instead of being
+     * killed mid-write.
+     */
+    async shutdown(): Promise<void> {
+        this.ready = false;
+        await this.state.close?.();
+        await this.events.close?.();
+    }
+
+    /** The k8s controller, if a live cluster is attached (absent in tests). */
+    get controller(): KubeController | undefined {
+        return this.kubeController;
+    }
+
     async apply(resource: HadesResource): Promise<HadesResource> {
+        validateResource(resource);
+        const ns = resource.metadata?.namespace ?? "default";
+        const name = resource.metadata?.name;
+        const existing = name ? this.state.get(resource.kind as HadesKind, ns, name) : undefined;
         const applied = await this.state.apply(resource);
-        await this.events.append("system", "resource.applied", {
-            kind: resource.kind,
-            namespace: applied.metadata?.namespace,
-            name: applied.metadata?.name,
-        });
+        // Idempotent: only record a resource.applied event when the resource
+        // actually changed (spec or labels/annotations). Re-applying an
+        // identical manifest is a no-op for the event log, so a controller
+        // re-applying desired state doesn't flood the durable log.
+        if (!existing || specChanged(existing, applied)) {
+            await this.events.append("system", "resource.applied", {
+                kind: resource.kind,
+                namespace: applied.metadata?.namespace,
+                name: applied.metadata?.name,
+            });
+        }
         return applied;
+    }
+
+    /**
+     * Remove a resource. Records a `resource.removed` event only if it
+     * existed. Returns true if something was deleted.
+     */
+    async remove(kind: HadesKind, namespace: string, name: string): Promise<boolean> {
+        const existed = await this.state.remove(kind, namespace, name);
+        if (existed) {
+            await this.events.append("system", "resource.removed", { kind, namespace, name });
+        }
+        return existed;
     }
 
     async reconcile(): Promise<void> {
@@ -85,6 +141,7 @@ export abstract class Runtime {
     async spawnAgent(subject: Partial<AgentSubject>, spec: Record<string, any>): Promise<{ agent: HadesResource; reply: string }> {
         const resolvedSubject = this.policy.resolveAgentSubject(subject);
         this.policy.assert(resolvedSubject, "spawnAgent", { namespace: resolvedSubject.namespace });
+        this.policy.assertQuota(resolvedSubject.namespace, "Agent");
         if (!spec.name) throw new Error("spawnAgent requires a name");
         if (spec.namespace && spec.namespace !== resolvedSubject.namespace) {
             throw new Error(`spawnAgent cannot target another namespace: ${spec.namespace}`);

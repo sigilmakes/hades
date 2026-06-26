@@ -2,7 +2,7 @@ import { nameOf, namespaceOf, type AgentSubject, type HadesResource } from "../d
 import { isScheduleDue } from "../domain/schedule-due.js";
 import type { EventStorePort } from "../ports/EventStore.js";
 import type { StateStorePort } from "../ports/StateStore.js";
-import { PolicyService } from "./PolicyService.js";
+import { type PolicyService } from "./PolicyService.js";
 
 type DeliverScheduledMessage = (agentName: string, text: string, options: { namespace: string; origin: Record<string, any> }) => Promise<unknown>;
 
@@ -76,6 +76,7 @@ export class ScheduleService {
     async createOwnSchedule(subject: Partial<AgentSubject>, spec: Record<string, any>): Promise<HadesResource> {
         const resolvedSubject = this.policy.resolveAgentSubject(subject);
         this.policy.assert(resolvedSubject, "createOwnSchedule", { namespace: resolvedSubject.namespace });
+        this.policy.assertQuota(resolvedSubject.namespace, "Schedule");
         const agentRef = spec.agentRef ?? resolvedSubject.name;
         if (agentRef !== resolvedSubject.name) throw new Error(`createOwnSchedule cannot target another agent: ${agentRef}`);
         const sessionName = spec.session ?? `${resolvedSubject.name}-default`;
