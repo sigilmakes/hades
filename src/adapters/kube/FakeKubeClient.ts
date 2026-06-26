@@ -57,6 +57,13 @@ export class FakeKubeClient implements KubeClient {
         throw new Error("FakeKubeClient cannot exec into pods; inject a custom KubeClient for exec tests");
     }
 
+    /** Per-pod log text, keyed by `${namespace}/${pod}`. Seed via {@link seedLogs}. */
+    readonly podLogs = new Map<string, string>();
+    seedLogs(namespace: string, pod: string, text: string): void { this.podLogs.set(`${namespace}/${pod}`, text); }
+    async logs(namespace: string, pod: string, _container: string): Promise<string> {
+        return this.podLogs.get(`${namespace}/${pod}`) ?? "";
+    }
+
     private key(namespace: string, kind: string, name: string): string {
         return `${namespace}/${kind}/${name}`;
     }
