@@ -2,6 +2,7 @@ import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { parsePrimitiveDecision } from "../../domain/primitives.js";
 import type { Runtime } from "../../runtime/Runtime.js";
 import type { PolicyDecision } from "../../domain/capabilities.js";
+import { createStaticHandler } from "./static.js";
 
 /** A request handler: given the parsed body + URL, return a JSON-serializable result (or throw). */
 type Handler = (ctx: RequestContext) => Promise<unknown> | unknown;
@@ -110,14 +111,21 @@ export class ClientError extends Error {
     }
 }
 
-export function createServer(runtime: Runtime): http.Server {
+export function createServer(runtime: Runtime, uiDir?: string): http.Server {
     const table = routes(runtime);
+    const staticHandler = uiDir ? createStaticHandler(uiDir) : undefined;
     return http.createServer(async (req, res) => {
         try {
             const url = new URL(req.url ?? "/", "http://localhost");
-            const body = await readBody(req);
             const matched = match(req.method ?? "GET", url.pathname, table);
-            if (!matched) return json(res, { error: "not found" }, 404);
+            // API route hit first. On a miss, try the static UI (SPA) before 404.
+            if (!matched) {
+                if (staticHandler && await staticHandler(req, res)) return;
+                const body = await readBody(req);
+                void body;
+                return json(res, { error: "not found" }, 404);
+            }
+            const body = await readBody(req);
             const result = await matched.route.handler({ url, body, params: matched.params });
             // A handler may return { __status, body } to set a non-200 status.
             if (result && typeof result === "object" && "__status" in result) {

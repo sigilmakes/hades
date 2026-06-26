@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createServer } from "./adapters/api/server.js";
 import { loadManifest } from "./adapters/manifest.js";
 import { dataDirFromEnv } from "./adapters/store/JsonStateStore.js";
@@ -24,6 +26,8 @@ const KIND_ALIASES: Record<string, string> = {
 const [rawCommand = "help", ...args] = process.argv.slice(2);
 const command = rawCommand === "--help" || rawCommand === "-h" ? "help" : rawCommand;
 const dataDir = dataDirFromEnv();
+/** Resolve the built web UI directory (ui/dist), if present. */
+const uiDir = process.env.HADES_UI_DIR ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../ui/dist");
 let runtimePromise: Promise<Runtime> | undefined;
 
 try {
@@ -223,7 +227,7 @@ async function serve(args: string[]): Promise<void> {
     const rt = await runtime();
     await rt.reconcile();
     const port = Number(args[0] ?? process.env.PORT ?? 7347);
-    const server = createServer(rt);
+    const server = createServer(rt, existsSync(uiDir) ? uiDir : undefined);
     server.listen(port, () => console.log(`hades-api listening on :${port}, data=${dataDir}`));
     installShutdown(rt, server);
 }
@@ -263,7 +267,7 @@ async function controller(args: string[]): Promise<void> {
     console.log(`hades controller running (event-driven, resync every ${resyncMs}ms, data=${dataDir})`);
     // The control plane also serves the API on PORT (default 7347).
     const port = Number(process.env.PORT ?? 7347);
-    const server = createServer(rt);
+    const server = createServer(rt, existsSync(uiDir) ? uiDir : undefined);
     server.listen(port, () => console.log(`hades-api listening on :${port}, data=${dataDir}`));
     installShutdown(rt, server);
 }
