@@ -98,14 +98,23 @@ export class SqliteEventStore implements EventStorePort {
     }
 }
 
-function rowToEvent(row: any): HadesEvent {
-    const meta = JSON.parse(row.meta ?? "{}");
+type EventRow = {
+    id: number | string;
+    session_id: string;
+    type: string;
+    created_at: string;
+    payload: string;
+    meta: string;
+};
+
+function rowToEvent(row: EventRow): HadesEvent {
+    const meta = JSON.parse(row.meta ?? "{}") as Record<string, unknown>;
     return {
-        id: row.id,
+        id: String(row.id),
         sessionId: row.session_id,
         type: row.type,
         createdAt: row.created_at,
-        payload: JSON.parse(row.payload ?? "{}"),
+        payload: JSON.parse(row.payload ?? "{}") as Record<string, unknown>,
         ...meta,
     };
 }

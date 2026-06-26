@@ -2,6 +2,16 @@ import * as k8s from "@kubernetes/client-node";
 import { PassThrough } from "node:stream";
 import type { KubeClient, KubeObject, ExecResult } from "../../ports/KubeClient.js";
 
+/** A k8s API error carries a numeric statusCode (the client throws objects, not Error). */
+function kubeStatus(error: unknown): number | undefined {
+    if (error && typeof error === "object") {
+        const e = error as { statusCode?: number; code?: number };
+        if (typeof e.statusCode === "number") return e.statusCode;
+        if (typeof e.code === "number") return e.code;
+    }
+    return undefined;
+}
+
 /**
  * A real {@link KubeClient} backed by `@kubernetes/client-node` for deploy
  * mode. Loads cluster config from the standard locations (in-cluster
@@ -48,8 +58,8 @@ export class KubeClientNode implements KubeClient {
             // is rejected anyway.
             await this.createByKind(namespace, group, version, kind, body);
             return name;
-        } catch (error: any) {
-            if (error?.statusCode === 409 || error?.code === 409) return name; // exists
+        } catch (error: unknown) {
+            if (kubeStatus(error) === 409) return name; // exists
             throw error;
         }
     }
@@ -58,8 +68,8 @@ export class KubeClientNode implements KubeClient {
         try {
             await this.deleteByKind(namespace, kind, name);
             return true;
-        } catch (error: any) {
-            if (error?.statusCode === 404 || error?.code === 404) return false;
+        } catch (error: unknown) {
+            if (kubeStatus(error) === 404) return false;
             throw error;
         }
     }
@@ -72,8 +82,8 @@ export class KubeClientNode implements KubeClient {
     async get(namespace: string, kind: string, name: string): Promise<KubeObject | undefined> {
         try {
             return await this.getByKind(namespace, kind, name);
-        } catch (error: any) {
-            if (error?.statusCode === 404 || error?.code === 404) return undefined;
+        } catch (error: unknown) {
+            if (kubeStatus(error) === 404) return undefined;
             throw error;
         }
     }
