@@ -68,8 +68,20 @@ Environment:
 }
 
 async function runtime(): Promise<Runtime> {
-    runtimePromise ??= (distributed ? createDistributedRuntime(dataDir).then((rt) => rt.init()) : createRuntime(dataDir).init());
+    runtimePromise ??= (distributed ? buildDistributedRuntime() : createRuntime(dataDir).init());
     return runtimePromise;
+}
+
+async function buildDistributedRuntime(): Promise<Runtime> {
+    const opts: Record<string, unknown> = {};
+    // Use the real k8s client when HADES_KUBE=1 (deploy to a live cluster);
+    // otherwise the FakeKubeClient stands in (tests/dev without a cluster).
+    if (process.env.HADES_KUBE === "1") {
+        const { KubeClientNode } = await import("./adapters/kube/KubeClientNode.js");
+        opts.kubeClient = new KubeClientNode();
+    }
+    const rt = await createDistributedRuntime(dataDir, opts);
+    return rt.init();
 }
 
 async function initEmpty(): Promise<void> {

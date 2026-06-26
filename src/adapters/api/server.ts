@@ -11,6 +11,12 @@ export function createServer(runtime: Runtime): http.Server {
             if (req.method === "GET" && url.pathname === "/hades/v1/agents") return json(res, runtime.state.list("Agent"));
             if (req.method === "GET" && url.pathname === "/hades/v1/events") return json(res, await runtime.events.list(url.searchParams.get("session") ?? undefined));
             if (req.method === "GET" && url.pathname === "/hades/v1/state") return json(res, await runtime.snapshot());
+            if (req.method === "GET" && url.pathname === "/hades/v1/projections/agents") return json(res, runtime.projections.agentTree(url.searchParams.get("namespace") ?? undefined));
+            if (req.method === "GET" && url.pathname === "/hades/v1/projections/activity") return json(res, await runtime.projections.activityTail(url.searchParams.get("session") ?? undefined, Number(url.searchParams.get("limit") ?? 50)));
+            if (req.method === "GET" && url.pathname === "/hades/v1/projections/approvals") return json(res, runtime.projections.approvalQueue(url.searchParams.get("namespace") ?? undefined));
+            if (req.method === "GET" && url.pathname === "/hades/v1/projections/schedules") return json(res, runtime.projections.scheduleStatus(url.searchParams.get("namespace") ?? undefined));
+            if (req.method === "GET" && url.pathname === "/hades/v1/projections/listeners") return json(res, runtime.projections.listenerStatus(url.searchParams.get("namespace") ?? undefined));
+            if (req.method === "GET" && url.pathname === "/hades/v1/projections/snapshot") return json(res, await runtime.projections.snapshot(url.searchParams.get("namespace") ?? undefined));
             if (req.method === "GET" && url.pathname === "/hades/v1/primitives") {
                 const rawDecision = url.searchParams.get("decision") ?? undefined;
                 try {

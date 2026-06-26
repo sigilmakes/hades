@@ -15,6 +15,7 @@ import { Reconciler } from "../services/Reconciler.js";
 import { ScheduleService } from "../services/ScheduleService.js";
 import { SyscallService } from "../services/SyscallService.js";
 import { SystemAgents } from "../services/SystemAgents.js";
+import { ProjectionService } from "../services/ProjectionService.js";
 import { Runtime } from "./Runtime.js";
 import type { HandsResolver } from "../ports/HandsResolver.js";
 import type { BrainDriver } from "../ports/BrainDriver.js";
@@ -48,8 +49,9 @@ export class LocalRuntime extends Runtime {
         override readonly homes: HomeService,
         override readonly listeners: ListenerService,
         override readonly syscalls: SyscallService,
+        override readonly projections: ProjectionService,
     ) {
-        super(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler, syscalls);
+        super(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, homes, listeners, reconciler, syscalls, projections);
     }
 
     override async init(): Promise<this> {
@@ -93,6 +95,7 @@ export function createRuntime(dataDir: string): LocalRuntime {
     const primitives = new PrimitiveService();
     const reconciler = new Reconciler(state, homes, agents, listeners, schedules, messages, new SystemAgents(state, events));
     const syscalls = new SyscallService(state, events, policy);
-    runtime = new LocalRuntime(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, reconciler, homes, listeners, syscalls);
+    const projections = new ProjectionService(state, events);
+    runtime = new LocalRuntime(dataDir, state, events, agents, brain, messages, schedules, primitives, policy, reconciler, homes, listeners, syscalls, projections);
     return runtime;
 }
