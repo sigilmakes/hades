@@ -9,7 +9,7 @@ There is one kernel and two kinds of agents, just like a Linux box has daemons a
 
 The kernel owns the boring, precious things: scheduling, the durable session/event logs, agent Homes, and the capability/permission system. Everything an agent needs to *do* (think, run code, talk to a channel) is a squishy workload the kernel spins up and reaps — brains, hands, gateways. Crash is not a disaster: the kernel re-wakes a brain from its durable log.
 
-> **Status:** a coherent, tested **kernel** with the right invariants and a runnable single-process shape — **not** a deployed multi-tenant platform. Real platform listeners, Kubernetes controllers, and a real store are adapters behind ports that already exist. See `docs/architecture.md`.
+> **Status:** a coherent, tested **distributed agent OS** — pod-per-agent, everything over HTTP (MCP Streamable HTTP for tools), capability-checked self-modification, durable state, native-k8s reconciliation. Real platform listeners (Discord/Matrix/email) and a live-cluster client are adapters behind ports that already exist. See `docs/architecture.md`.
 
 ## Quickstart
 

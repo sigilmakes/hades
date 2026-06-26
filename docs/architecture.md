@@ -65,14 +65,35 @@ The local prototype is **not a toy** — it is the same kernel with its workload
 
 ## Syscalls that are real today
 
-- `os.createSchedule` — policy-checked; resident agents set their own timers.
-- `os.spawnAgent` — policy-checked; a resident agent mints a confined ephemeral worker for one task, the kernel reaps it after. This is the daemon-forks-a-transient-unit primitive, now behavior not just prose.
+The full `os.*` syscall layer (spec/08), capability-checked and audited:
+
+- `os.createSchedule` — resident agents set their own timers (cron/interval/once).
+- `os.spawnAgent` — a resident agent mints a confined ephemeral worker for one task; the kernel reaps it after. In deploy mode this is a real pod (`spawnAgent` = `fork()`); the controller cascades brain/hands pod deletion via ownerReferences.
+- `os.createAgent` / `os.createHome` / `os.attachListener` — provision agents, homes, and platform listeners.
+- `os.requestApproval` / `os.respondApproval` — resumable human-in-the-loop gates for destructive ops.
+- `os.emitArtifact` — record artifact references in the event log.
+
+## Distributed mode (now real)
+
+Hades now runs as a real distributed system, not just a simulation. The same kernel services run in both modes behind the same ports (D4):
+
+- **Brain pods** lift the pi-SDK model loop into their own process (`POST /run` + SSE). Tool calls route over **MCP Streamable HTTP** to hands pods — the standards-aligned wire, not a bespoke protocol.
+- **Hands pods** are MCP servers exposing `hades_read`/`hades_write`/`hades_exec`, backed by the same confinement logic (profile-driven sandbox). Model credentials never live here.
+- **A k8s controller** reconciles Hades resources into native k8s objects: `Deployment`s for brains, `PVC`s for homes, `CronJob`s for schedules, `NetworkPolicy` + `RBAC` for capability projection. Uses `ownerReferences` for native GC.
+- **Durable stores**: SQLite-on-PVC event + state stores (behind the port; Postgres is the prod target).
+- **Node-count-agnostic**: only standard k8s API objects; single-node k3s → multi-node is a StorageClass swap, never a rewrite.
+
+Milestone 1 (proven): one agent end-to-end over HTTP — controller reconciles the manifest, a real brain pod runs, tool calls cross MCP to a hands pod, the home PVC persists, and the agent survives a brain pod restart.
+
+## System agents
+
+Three privileged userland daemons (spec/12) are bootstrapped on reconcile: **provisioner** (creates agents/homes/listeners), **janitor** (cleans expired resources), **auditor** (reviews policy/exposure). They are agents with scoped capabilities, never blanket cluster-admin — intelligent operators on top of the deterministic controller.
 
 ## What is NOT here (honest gaps)
 
 - **Real model run**: the brain's pi-SDK path is wired but only exercised by an offline test brain. Running a real model depends on your environment's providers/keys; there is no bundled "clean" model path. See `docs/setup.md`.
-- **Real platform listeners**: Discord/Matrix/email gateways are declared resources, not live bridges. The kernel manages their lifecycle; the bridge implementations come later.
-- **Real Kubernetes controllers**: the local prototype reconciles in-process. The k8s controller substrate is a future target, not present.
-- **Persistence**: JSON + JSONL files. Fine for v0 and single-box; a real event/projection store is a future target.
+- **Real platform listener bridges**: the CLI bridge is real (`hades attach`); Discord/Matrix/email bridges are declared resources with the routing contract in place, but their platform SDKs are not wired (they throw on start — the resource model exists, the SDK is the missing piece).
+- **Real cluster deployment**: the controller is tested against a `FakeKubeClient`; a `@kubernetes/client-node`-backed client for a live cluster is the deploy concern. The controller logic is what's under test; cluster wiring is configuration.
+- **Projections/UI**: raw events are durable and queryable; the projection store (AgentTree, RunSummary) is out of scope until there's a UI.
 
-Hades today is a coherent, tested **kernel** with the right invariants and a runnable single-process shape — not a deployed multi-tenant platform. The point of this doc is that the shape is right, so the remaining work is filling in adapters (real listeners, real k8s controllers, real store) behind the ports that already exist.
+Hades today is a coherent, tested **distributed agent OS** with the right invariants — pod-per-agent, everything over HTTP, capability-checked self-modification, durable state, and native-k8s reconciliation. The remaining work is platform adapters (real listeners, a live cluster client) behind the ports that already exist.
