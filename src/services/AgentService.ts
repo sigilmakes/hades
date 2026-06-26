@@ -39,15 +39,15 @@ export class AgentService {
                 status: { phase: "ready", podName: `brain-${agentName}-local` },
             });
         }
-        if (!this.state.findByName("Hands", `${agentName}-home-shell`, namespace)) {
-            await this.state.apply({
-                apiVersion: "hades.dev/v1alpha1",
-                kind: "Hands",
-                metadata: { namespace, name: `${agentName}-home-shell` },
-                spec: { agentRef: agentName, type: "home-toolbox", mode: "exclusive-home", homeRef: agent.spec?.homeRef, ...(agent.spec?.handsImageRef ? { handsImageRef: agent.spec.handsImageRef } : {}) },
-                status: { phase: "ready", podName: `hands-${agentName}-local` },
-            });
-        }
+        // Ensure (and keep in sync) the agent's default home-shell Hands — its
+        // image ref + security follow the agent's spec so edits roll forward.
+        await this.state.apply({
+            apiVersion: "hades.dev/v1alpha1",
+            kind: "Hands",
+            metadata: { namespace, name: `${agentName}-home-shell` },
+            spec: { agentRef: agentName, type: "home-toolbox", mode: "exclusive-home", homeRef: agent.spec?.homeRef, ...(agent.spec?.handsImageRef ? { handsImageRef: agent.spec.handsImageRef } : {}), ...(agent.spec?.hands?.security ? { security: agent.spec.hands.security } : {}) },
+            status: { phase: "ready", podName: `hands-${agentName}-local` },
+        });
         agent.status = { ...(agent.status ?? {}), phase: agent.spec?.desiredState ?? "active", session: sessionName };
     }
 

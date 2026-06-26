@@ -109,3 +109,30 @@ test("ConnectorToolRegistrar calls the deployed endpoint over HTTP", async () =>
     assert.equal(lastUrl, "https://api.github.com/repos/foo");
     assert.equal(lastHeaders.authorization, "Bearer tok");
 });
+
+test("hands pod runs as a non-root user by default (rootless)", async () => {
+    const { rt, kube } = await fixture();
+    await rt.reconcile();
+    const handsDep = await kube.get(NS, "Deployment", `hands-${AGENT}`);
+    const podSpec = handsDep.spec.template.spec;
+    const container = podSpec.containers[0];
+    assert.equal(container.securityContext.runAsNonRoot, true, "non-root by default");
+    assert.equal(container.securityContext.runAsUser, 1000, "runs as uid 1000");
+    assert.equal(podSpec.securityContext.fsGroup, 1000, "home PVC owned by fsGroup 1000");
+    assert.equal(podSpec.automountServiceAccountToken, false, "no k8s API token");
+});
+
+test("a hands pod with userNamespace:true gets a rootless fake root (hostUsers:false)", async () => {
+    const { rt, kube } = await fixture();
+    const atlas = rt.state.get("Agent", NS, AGENT);
+    await rt.apply({ ...atlas, spec: { ...atlas.spec, hands: { security: { userNamespace: true } } } });
+    await rt.reconcile();
+    const handsDep = await kube.get(NS, "Deployment", `hands-${AGENT}`);
+    const podSpec = handsDep.spec.template.spec;
+    const container = podSpec.containers[0];
+    // Fake root inside the pod, but hostUsers:false means it maps to an
+    // unprivileged host uid — pod-internal root without node privilege.
+    assert.equal(container.securityContext.runAsUser, 0, "fake root (uid 0) inside the pod");
+    assert.equal(container.securityContext.runAsNonRoot, false, "runAsNonRoot false for the fake root");
+    assert.equal(podSpec.securityContext.hostUsers, false, "user namespace isolates the root");
+});

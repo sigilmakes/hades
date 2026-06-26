@@ -94,6 +94,12 @@ export function buildHands(hands: HadesResource, agent: HadesResource | undefine
                 spec: {
                     // Hands pods must not be able to call back into the k8s API.
                     automountServiceAccountToken: false,
+                    // Rootless: run as a non-root UID so pod-internal "root" is never
+                    // node-root. The agent owns its home (the PVC is mounted writable
+                    // for this UID). For tools that need a fake root (e.g. nix install
+                    // to /nix), enable user namespaces via spec.security.userNamespace —
+                    // the pod gets a uid-0 that maps to an unprivileged host uid.
+                    securityContext: handsSecurityContext(hands, agent),
                     containers: [{
                         name: "hands",
                         image: resolvedImage ?? hands.spec?.image ?? "node:24-slim",
@@ -102,6 +108,7 @@ export function buildHands(hands: HadesResource, agent: HadesResource | undefine
                         // execs read/write/exec into it via the k8s API. No server, no port.
                         command: ["sleep", "infinity"],
                         env: [{ name: "HADES_HOME_ROOT", value: "/home/agent" }],
+                        securityContext: { runAsUser: handsRunAsUser(hands, agent), runAsNonRoot: handsRunAsUser(hands, agent) !== 0 },
                         volumeMounts: [{ name: "home", mountPath: "/home/agent" }],
                         // Liveness: confirm the home mount is present (exec-based, no server).
                         livenessProbe: { exec: { command: ["test", "-d", "/home/agent"] }, initialDelaySeconds: 5, periodSeconds: 30 },
@@ -237,6 +244,33 @@ function tryHost(endpoint: string): string | undefined {
     } catch {
         return undefined;
     }
+}
+
+/**
+ * The UID a hands pod runs as. Default 1000 (a non-root user that owns its
+ * home). A Hands spec may request a user-namespace fake root (uid 0 mapped to
+ * an unprivileged host uid) for tools that need pod-internal root (e.g. nix
+ * install) — this is rootless: the pod's root is never node-root.
+ */
+function handsRunAsUser(hands: HadesResource, agent?: HadesResource): number {
+    const sec = (hands.spec?.security ?? agent?.spec?.hands?.security) as { runAsUser?: number; userNamespace?: boolean } | undefined;
+    if (sec?.userNamespace) return 0; // fake root inside a user namespace
+    return sec?.runAsUser ?? 1000;
+}
+
+/** Pod-level security context for a hands pod. Enables user namespaces when the
+ * spec requests a fake root, so pod-internal uid 0 maps to an unprivileged
+ * host uid (no node privilege). */
+function handsSecurityContext(hands: HadesResource, agent?: HadesResource): Record<string, unknown> {
+    const sec = (hands.spec?.security ?? agent?.spec?.hands?.security) as { userNamespace?: boolean; fsGroup?: number } | undefined;
+    const ctx: Record<string, unknown> = { fsGroup: sec?.fsGroup ?? 1000 };
+    if (sec?.userNamespace) {
+        // hostUsers: false (k8s >=1.30) runs the pod in a user namespace — the
+        // pod's uid 0 is mapped to an unprivileged host uid. Pod-internal root
+        // without node privilege: the rootless hands model.
+        ctx.hostUsers = false;
+    }
+    return ctx;
 }
 
 /**

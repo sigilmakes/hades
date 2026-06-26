@@ -206,6 +206,15 @@ spec:
                 agentRef: { type: string }
                 homeRef: { type: string }
                 image: { type: string }
+                handsImageRef: { type: string }
+                security:
+                  type: object
+                  properties:
+                    runAsUser: { type: number }
+                    fsGroup: { type: number }
+                    # Run in a user namespace: pod-internal uid 0 maps to an
+                    # unprivileged host uid (rootless hands — no node privilege).
+                    userNamespace: { type: boolean }
             status:
               type: object
               properties:
