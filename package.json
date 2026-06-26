@@ -5,7 +5,8 @@
   "type": "module",
   "bin": {
     "hades": "dist/cli.js",
-    "hades-brain-pod": "dist/brain-pod/cli.js"
+    "hades-brain-pod": "dist/brain-pod/cli.js",
+    "hades-hands-pod": "dist/hands-pod/cli.js"
   },
   "scripts": {
     "clean": "node scripts/clean-dist.mjs",
@@ -15,6 +16,7 @@
     "serve": "npm run build && node dist/cli.js serve",
     "hades": "npm run build --silent && node dist/cli.js",
     "brain-pod": "npm run build --silent && node dist/brain-pod/cli.js",
+    "hands-pod": "npm run build --silent && node dist/hands-pod/cli.js",
     "prepack": "npm run build"
   },
   "engines": {
@@ -23,6 +25,7 @@
   "dependencies": {
     "@earendil-works/pi-ai": "^0.79.10",
     "@earendil-works/pi-coding-agent": "^0.79.10",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "croner": "^10.0.1"
   },
   "devDependencies": {
