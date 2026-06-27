@@ -1,4 +1,4 @@
-import { nameOf, namespaceOf, type HadesResource } from "../domain/resources.js";
+import { nameOf, namespaceOf, type HadesKind, type HadesResource } from "../domain/resources.js";
 import { HADES_FINALIZER, type KubeClient } from "../ports/KubeClient.js";
 import type { StateStorePort } from "../ports/StateStore.js";
 import type { EventStorePort } from "../ports/EventStore.js";
@@ -79,12 +79,34 @@ export class KubeController {
         if (this.state.subscribe) {
             this.stopWatch = this.state.subscribe(() => this.scheduleReconcile());
         }
+        // GitOps: watch the cluster for Hades CRD changes (kubectl apply/delete)
+        // and feed them back into the local state store. This closes the loop so
+        // `kubectl apply -f agent.yaml` is reconciled without waiting for the
+        // 30s resync. The state store mutation triggers the subscribe() above.
+        let stopClusterWatch: (() => void) | undefined;
+        if (this.kube.watchResources) {
+            this.kube.watchResources((phase, obj) => {
+                const kind = obj.kind as HadesKind;
+                const ns = obj.metadata?.namespace ?? "default";
+                const name = obj.metadata?.name ?? "";
+                if (!kind || !name) return;
+                if (phase === "DELETED") {
+                    this.state.remove(kind, ns, name).catch((e) => this.log.error("watch delete failed", { kind, name, error: String(e) }));
+                } else {
+                    // ADDED or MODIFIED — feed the CRD into the state store.
+                    // The controller's own ensure() calls will re-trigger as
+                    // no-ops (idempotent); the reconcile propagates the change.
+                    this.state.apply(obj as HadesResource).catch((e) => this.log.error("watch apply failed", { kind, name, error: String(e) }));
+                }
+            }).then((stop) => { stopClusterWatch = stop; }).catch((e) => this.log.error("watchResources failed to start", { error: String(e) }));
+        }
         // Safety net: periodic full resync catches drift the change stream misses.
         const timer = setInterval(() => this.scheduleReconcile(), resyncMs);
         timer.unref?.();
         return () => {
             this.stopWatch?.();
             this.stopWatch = undefined;
+            stopClusterWatch?.();
             clearInterval(timer);
             if (this.debounce) { clearTimeout(this.debounce); this.debounce = undefined; }
         };

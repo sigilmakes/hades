@@ -157,7 +157,7 @@ kubectl -n <agent-ns> create rolebinding hades-brain --clusterrole=hades-brain -
 ```
 
 Without it the brain Deployment's ReplicaSet is stuck in `FailedCreate`.
-Apply the agent through the API (`POST /hades/v1/resources`) — the control
-plane is the source of truth, so state flows local→cluster and the controller
-reconciles it; applying a CRD directly with `kubectl` won't enter the local
-state mirror and won't be reconciled.
+The control plane watches the cluster for Hades CRD changes, so both
+`kubectl apply -f agent.yaml` and the API (`POST /hades/v1/resources`) are
+reconciled — `kubectl apply` is the GitOps path; the API is the programmatic
+path. `kubectl delete` is likewise reflected in the local state.
