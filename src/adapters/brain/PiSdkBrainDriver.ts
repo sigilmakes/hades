@@ -22,7 +22,7 @@ export class PiSdkBrainDriver implements BrainDriver {
         private readonly self?: { subject: { kind: string; name: string; namespace: string }; apiUrl: string },
     ) {}
 
-    async run({ agent, session, prompt }: BrainRunInput): Promise<string> {
+    async run({ agent, session, prompt, onToken }: BrainRunInput): Promise<string> {
         const [{ Type }, pi] = await Promise.all([
             import("@earendil-works/pi-ai"),
             import("@earendil-works/pi-coding-agent"),
@@ -63,7 +63,9 @@ export class PiSdkBrainDriver implements BrainDriver {
         type SessionEvent = { type: string; assistantMessageEvent?: { type: string; delta?: string } };
         const unsubscribe = piSession.subscribe((event: SessionEvent) => {
             if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
-                text += event.assistantMessageEvent.delta ?? "";
+                const delta = event.assistantMessageEvent.delta ?? "";
+                text += delta;
+                onToken?.(delta);
             }
         });
         try {

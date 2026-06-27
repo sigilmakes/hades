@@ -18,7 +18,7 @@ export class TestBrainDriver implements BrainDriver {
         private readonly message?: MessageCallback,
     ) {}
 
-    async run({ agent, session, prompt }: BrainRunInput): Promise<string> {
+    async run({ agent, session, prompt, onToken }: BrainRunInput): Promise<string> {
         const sessionName = nameOf(session);
         const hands = this.handsFor(agent, session);
         const trimmed = prompt.trim();
@@ -50,6 +50,7 @@ export class TestBrainDriver implements BrainDriver {
             await this.events.append(sessionName, "brain.model.completed", { provider: "test", bytes: reply.length });
             await this.events.append(sessionName, "agent.message", { agent: nameOf(agent), text: reply });
             await this.events.append(sessionName, "brain.sleeping", { checkpoint: "latest" });
+            onToken?.(reply);
             return reply;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);

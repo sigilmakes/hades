@@ -131,8 +131,8 @@ export abstract class Runtime {
         await this.reconciler.reconcile();
     }
 
-    async messageAgent(agentName: string, text: string, options: { namespace?: string; origin?: Record<string, any> } = {}): Promise<{ run: HadesResource; reply: string }> {
-        return this.messages.messageAgent(agentName, text, options);
+    async messageAgent(agentName: string, text: string, options: { namespace?: string; origin?: Record<string, any> } = {}, onToken?: (delta: string) => void): Promise<{ run: HadesResource; reply: string }> {
+        return this.messages.messageAgent(agentName, text, options, onToken);
     }
 
     async createSchedule(subject: Partial<{ kind: "Agent"; name: string; namespace: string }>, spec: Record<string, any>): Promise<HadesResource> {

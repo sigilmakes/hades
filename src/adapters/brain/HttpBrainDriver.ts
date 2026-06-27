@@ -22,7 +22,7 @@ export class HttpBrainDriver implements BrainDriver {
         this.baseUrl = baseUrl.replace(/\/+$/, "");
     }
 
-    async run({ agent, session, prompt }: BrainRunInput): Promise<string> {
+    async run({ agent, session, prompt, onToken }: BrainRunInput): Promise<string> {
         const res = await fetch(`${this.baseUrl}/run`, {
             method: "POST",
             headers: { "content-type": "application/json", accept: "text/event-stream" },
@@ -32,17 +32,10 @@ export class HttpBrainDriver implements BrainDriver {
             const text = await res.text().catch(() => "");
             throw new Error(`brain run failed (${res.status}): ${text || res.statusText}`);
         }
-        return consumeSseReply(res.body);
+        return consumeSseReply(res.body, onToken);
     }
 }
-
-/**
- * Consume an SSE stream from the brain pod `/run` endpoint and return the
- * assembled reply. Emits a done/error terminal event.
- *
- * Exported for tests.
- */
-export async function consumeSseReply(body: ReadableStream<Uint8Array>): Promise<string> {
+export async function consumeSseReply(body: ReadableStream<Uint8Array>, onToken?: (delta: string) => void): Promise<string> {
     const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -57,7 +50,11 @@ export async function consumeSseReply(body: ReadableStream<Uint8Array>): Promise
             const data = chunk.split("\n").filter((line) => line.startsWith("data: ")).map((line) => line.slice(6)).join("\n");
             if (!data) continue;
             const event = JSON.parse(data);
-            if (event.type === "token") reply += String(event.delta ?? "");
+            if (event.type === "token") {
+                const delta = String(event.delta ?? "");
+                reply += delta;
+                onToken?.(delta);
+            }
             else if (event.type === "done") return String(event.reply ?? reply);
             else if (event.type === "error") throw new Error(`brain pod error: ${event.message}`);
         }

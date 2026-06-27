@@ -18,9 +18,9 @@ export class BrainService {
         throw new Error(`Unsupported brain mode ${configured}`);
     }
 
-    async run(agent: HadesResource, session: HadesResource, prompt: string): Promise<string> {
+    async run(agent: HadesResource, session: HadesResource, prompt: string, onToken?: (delta: string) => void): Promise<string> {
         const mode = this.resolveMode(agent);
         await this.events.append(nameOf(session), "brain.woke", { agent: nameOf(agent), mode });
-        return this.driverFactory(mode).run({ agent, session, prompt });
+        return this.driverFactory(mode).run({ agent, session, prompt, onToken });
     }
 }
