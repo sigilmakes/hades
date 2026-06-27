@@ -247,6 +247,33 @@ export class KubeClientNode implements KubeClient {
         const resp = await this.customObjects.getNamespacedCustomObject({ group: "hades.dev", version: "v1alpha1", namespace: ns, plural, name });
         return resp as unknown as KubeObject;
     }
+
+    /**
+     * Watch all Hades CRD kinds across all namespaces. Uses the k8s Watch API
+     * to stream ADDED/MODIFIED/DELETED events so `kubectl apply`/`kubectl delete`
+     * of Hades resources are reflected in the local state store without waiting
+     * for the 30s resync.
+     */
+    async watchResources(handler: (phase: "ADDED" | "MODIFIED" | "DELETED", obj: KubeObject) => void): Promise<() => void> {
+        const watch = new k8s.Watch(this.kc);
+        const controllers: AbortController[] = [];
+        const plurals = Object.values(HADES_PLURALS);
+        const path = (plural: string) => `/apis/hades.dev/v1alpha1/${plural}`;
+        for (const plural of plurals) {
+            const ctrl = await watch.watch(
+                path(plural),
+                {},
+                (phase: string, obj: any) => {
+                    if (phase === "ADDED" || phase === "MODIFIED" || phase === "DELETED") {
+                        handler(phase, obj as KubeObject);
+                    }
+                },
+                () => { /* watch closed; resync will restart */ },
+            );
+            controllers.push(ctrl);
+        }
+        return () => { for (const c of controllers) c.abort(); };
+    }
 }
 
 /** Plural for a Hades kind — must match the CRD `names.plural`. */

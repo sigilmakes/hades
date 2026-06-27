@@ -1,4 +1,5 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
+import { WebSocketServer } from "ws";
 import { parsePrimitiveDecision } from "../../domain/primitives.js";
 import type { Runtime } from "../../runtime/Runtime.js";
 import type { PolicyDecision } from "../../domain/capabilities.js";
@@ -136,6 +137,43 @@ function routes(runtime: Runtime): Route[] {
                 });
             },
         },
+        {
+            // Streaming message endpoint: returns SSE with token-by-token reply.
+            method: "POST", path: "/hades/v1/agents/:name/stream", handler: async (c) => {
+                const res = c.res;
+                const body = c.body;
+                res.writeHead(200, {
+                    "content-type": "text/event-stream",
+                    "cache-control": "no-cache",
+                    connection: "keep-alive",
+                });
+                try {
+                    const { reply } = await runtime.messageAgent(
+                        c.params.name,
+                        String(body.text ?? ""),
+                        {
+                            namespace: typeof body.namespace === "string" ? body.namespace : undefined,
+                            origin: typeof body.origin === "object" && body.origin ? body.origin as Record<string, unknown> : undefined,
+                        },
+                        (delta) => res.write(`data: ${JSON.stringify({ type: "token", delta })}\n\n`),
+                    );
+                    res.write(`data: ${JSON.stringify({ type: "done", reply })}\n\n`);
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    res.write(`data: ${JSON.stringify({ type: "error", message })}\n\n`);
+                } finally {
+                    res.end();
+                }
+                return STREAMING;
+            },
+        },
+        {
+            // WebSocket bidirectional attach. This route exists so the upgrade
+            // handler can match it; a plain HTTP GET returns 426 Upgrade Required.
+            method: "GET", path: "/hades/v1/agents/:name/attach", handler: () => {
+                throw new ClientError("WebSocket upgrade required (ws:// or wss://)", 426);
+            },
+        },
         { method: "POST", path: "/hades/v1/resources", handler: (c) => runtime.apply(c.body as never) },
         {
             method: "DELETE", path: "/hades/v1/resources/:kind/:name", handler: async (c) => {
@@ -219,7 +257,7 @@ export class ClientError extends Error {
 export function createServer(runtime: Runtime, uiDir?: string): http.Server {
     const table = routes(runtime);
     const staticHandler = uiDir ? createStaticHandler(uiDir) : undefined;
-    return http.createServer(async (req, res) => {
+    const server = http.createServer(async (req, res) => {
         try {
             const url = new URL(req.url ?? "/", "http://localhost");
             const matched = match(req.method ?? "GET", url.pathname, table);
@@ -246,6 +284,38 @@ export function createServer(runtime: Runtime, uiDir?: string): http.Server {
             return json(res, { error: message, decision }, decision ? 403 : 500);
         }
     });
+    // WebSocket upgrade for /hades/v1/agents/:name/attach (bidirectional attach).
+    const wss = new WebSocketServer({ noServer: true });
+    server.on("upgrade", (req, socket, head) => {
+        const url = new URL(req.url ?? "/", "http://localhost");
+        const matched = match("GET", url.pathname, table);
+        if (!matched || matched.route.path !== "/hades/v1/agents/:name/attach") {
+            socket.destroy();
+            return;
+        }
+        wss.handleUpgrade(req, socket, head, (ws) => {
+            const name = matched.params.name;
+            const namespace = url.searchParams.get("namespace") ?? undefined;
+            ws.send(JSON.stringify({ type: "attached", agent: name }));
+            ws.on("message", async (data) => {
+                try {
+                    const msg = JSON.parse(String(data));
+                    if (msg.type !== "message" || typeof msg.text !== "string") return;
+                    const { reply } = await runtime.messageAgent(name, msg.text, {
+                        namespace: namespace ?? undefined,
+                        origin: { kind: "attach" },
+                    }, (delta) => {
+                        if (ws.readyState === 1) ws.send(JSON.stringify({ type: "token", delta }));
+                    });
+                    if (ws.readyState === 1) ws.send(JSON.stringify({ type: "done", reply }));
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    if (ws.readyState === 1) ws.send(JSON.stringify({ type: "error", message }));
+                }
+            });
+        });
+    });
+    return server;
 }
 
 function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {

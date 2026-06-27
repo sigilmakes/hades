@@ -131,8 +131,8 @@ export abstract class Runtime {
         await this.reconciler.reconcile();
     }
 
-    async messageAgent(agentName: string, text: string, options: { namespace?: string; origin?: Record<string, any> } = {}): Promise<{ run: HadesResource; reply: string }> {
-        return this.messages.messageAgent(agentName, text, options);
+    async messageAgent(agentName: string, text: string, options: { namespace?: string; origin?: Record<string, any> } = {}, onToken?: (delta: string) => void): Promise<{ run: HadesResource; reply: string }> {
+        return this.messages.messageAgent(agentName, text, options, onToken);
     }
 
     async createSchedule(subject: Partial<{ kind: "Agent"; name: string; namespace: string }>, spec: Record<string, any>): Promise<HadesResource> {
@@ -140,10 +140,12 @@ export abstract class Runtime {
     }
 
     /**
-     * A resident agent spawns a throwaway (ephemeral) agent for one task.
-     * The kernel checks the `spawnAgent` capability, mints a confined ephemeral
-     * agent in the caller's namespace, runs the prompt once, reaps it, and
-     * returns the reply. Like a daemon forking a transient unit.
+     * A resident agent spawns a subordinate agent for a task. By default the
+     * subordinate is ephemeral — one prompt, one reply, then reaped. When
+     * `spec.lifecycle === "resident"`, the subordinate stays active with its own
+     * session and brain pod, and the spawner can send further prompts via
+     * `messageAgent` (subject to capability checks). Like a daemon forking a
+     * transient vs. a persistent unit.
      *
      * This logic is mode-agnostic: it uses only port-level services. The
      * k8s controller re-targets the *substrate* (the spawned agent becomes a
@@ -159,51 +161,56 @@ export abstract class Runtime {
             throw new Error(`spawnAgent cannot target another namespace: ${spec.namespace}`);
         }
         const namespace = resolvedSubject.namespace;
-        const ephemeralName = String(spec.name);
-        if (this.state.findByName("Agent", ephemeralName, namespace)) {
-            throw new Error(`Agent ${namespace}/${ephemeralName} already exists`);
+        const spawnedName = String(spec.name);
+        const lifecycle = spec.lifecycle === "resident" ? "resident" : "ephemeral";
+        if (this.state.findByName("Agent", spawnedName, namespace)) {
+            throw new Error(`Agent ${namespace}/${spawnedName} already exists`);
         }
         const capabilities: string[] = Array.isArray(spec.capabilities) ? spec.capabilities : [];
-        const ephemeral: HadesResource = {
+        const spawned: HadesResource = {
             apiVersion: "hades.dev/v1alpha1",
             kind: "Agent",
-            metadata: { namespace, name: ephemeralName },
+            metadata: { namespace, name: spawnedName },
             spec: {
-                lifecycle: "ephemeral",
-                defaultSession: `${ephemeralName}-default`,
+                lifecycle,
+                defaultSession: `${spawnedName}-default`,
                 desiredState: "active",
-                brain: { mode: spec.brain?.mode ?? "test" },
+                brain: { mode: spec.brain?.mode ?? "test", ...(spec.brain?.image ? { image: spec.brain.image } : {}) },
             },
             status: { phase: "pending", spawnedBy: resolvedSubject.name },
         };
-        await this.state.apply(ephemeral);
-        await this.events.append("system", "agent.spawned", { agent: ephemeralName, by: resolvedSubject.name, namespace });
+        await this.state.apply(spawned);
+        await this.events.append("system", "agent.spawned", { agent: spawnedName, by: resolvedSubject.name, namespace, lifecycle });
         if (capabilities.length > 0) {
             await this.state.apply({
                 apiVersion: "hades.dev/v1alpha1",
                 kind: "CapabilityGrant",
-                metadata: { namespace, name: `${ephemeralName}-spawn-grant` },
-                spec: { subject: { kind: "Agent", name: ephemeralName }, capabilities, constraints: { namespace: "own" } },
+                metadata: { namespace, name: `${spawnedName}-spawn-grant` },
+                spec: { subject: { kind: "Agent", name: spawnedName }, capabilities, constraints: { namespace: "own" } },
                 status: { phase: "active" },
             });
         }
         await this.reconcile();
         let reply = "";
-        const grantName = capabilities.length > 0 ? `${ephemeralName}-spawn-grant` : undefined;
+        const grantName = capabilities.length > 0 ? `${spawnedName}-spawn-grant` : undefined;
         try {
-            reply = (await this.messages.messageAgent(ephemeralName, String(spec.prompt ?? ""), { namespace })).reply;
+            reply = (await this.messages.messageAgent(spawnedName, String(spec.prompt ?? ""), { namespace })).reply;
         } finally {
-            const reaped = this.state.findByName("Agent", ephemeralName, namespace);
-            if (reaped) {
-                reaped.status = { ...(reaped.status ?? {}), phase: "completed", reapedAt: new Date().toISOString() };
-                await this.state.save();
-                await this.events.append("system", "agent.reaped", { agent: ephemeralName, namespace, by: resolvedSubject.name });
-            }
-            if (grantName) {
-                await this.state.remove("CapabilityGrant", namespace, grantName);
+            // Ephemeral subordinates are reaped after the prompt; resident
+            // subordinates stay active so the spawner can keep talking to them.
+            if (lifecycle === "ephemeral") {
+                const reaped = this.state.findByName("Agent", spawnedName, namespace);
+                if (reaped) {
+                    reaped.status = { ...(reaped.status ?? {}), phase: "completed", reapedAt: new Date().toISOString() };
+                    await this.state.save();
+                    await this.events.append("system", "agent.reaped", { agent: spawnedName, namespace, by: resolvedSubject.name });
+                }
+                if (grantName) {
+                    await this.state.remove("CapabilityGrant", namespace, grantName);
+                }
             }
         }
-        return { agent: this.state.findByName("Agent", ephemeralName, namespace) ?? ephemeral, reply };
+        return { agent: this.state.findByName("Agent", spawnedName, namespace) ?? spawned, reply };
     }
 
     /**

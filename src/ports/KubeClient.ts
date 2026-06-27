@@ -33,6 +33,12 @@ export interface KubeClient {
     exec(namespace: string, pod: string, container: string, command: string[], stdin?: string): Promise<ExecResult>;
     /** Stream a pod container's logs. Resolves to the full log text. */
     logs(namespace: string, pod: string, container: string, opts?: { tail?: number; follow?: boolean }): Promise<string>;
+    /**
+     * Watch Hades CRDs across all namespaces. Calls back on ADDED/MODIFIED/DELETED.
+     * Returns a stop function. Optional — FakeKubeClient simulates via emits;
+     * KubeClientNode uses the k8s Watch API.
+     */
+    watchResources?(handler: (phase: "ADDED" | "MODIFIED" | "DELETED", obj: KubeObject) => void): Promise<() => void>;
 }
 
 /** A minimal k8s object shape the controller produces. */

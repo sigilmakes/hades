@@ -159,7 +159,7 @@ function defaultBrainFactory(
     if (brainUrl) return () => new HttpBrainDriver(brainUrl);
     return (mode: BrainMode) => {
         if (mode === "pi-sdk") return new PiSdkBrainDriver(events, (agent) => agents.homeRoot(agent), (a, s) => handsResolver.for(a, s));
-        return new TestBrainDriver(events, (a, s) => handsResolver.for(a, s), schedules, (subject, spec) => runtime().spawnAgent(subject, spec));
+        return new TestBrainDriver(events, (a, s) => handsResolver.for(a, s), schedules, (subject, spec) => runtime().spawnAgent(subject, spec), (agentName, text, options) => runtime().messageAgent(agentName, text, options));
     };
 }
 

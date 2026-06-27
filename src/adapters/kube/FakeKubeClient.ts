@@ -19,13 +19,21 @@ export class FakeKubeClient implements KubeClient {
         // Stamp a synthetic uid on Hades CRDs (a real cluster assigns one) so
         // ownerReferences resolve in tests.
         const uid = hadesKinds.has(object.kind) ? `fake-${object.kind}-${name}` : object.metadata.uid;
+        const existed = this.objects.has(key);
         this.objects.set(key, { ...object, metadata: { ...object.metadata, namespace, ...(uid ? { uid } : {}) } });
+        // Emit a watch event so the controller's GitOps path sees external applies.
+        if (hadesKinds.has(object.kind)) {
+            this.emitWatch(existed ? "MODIFIED" : "ADDED", this.objects.get(key)!);
+        }
         return name;
     }
 
     async delete(namespace: string, kind: string, name: string): Promise<boolean> {
         const key = this.key(namespace, kind, name);
-        return this.objects.delete(key);
+        const existed = this.objects.get(key);
+        const deleted = this.objects.delete(key);
+        if (deleted && existed) this.emitWatch("DELETED", existed);
+        return deleted;
     }
 
     async patchMetadata(namespace: string, kind: string, name: string, patch: Record<string, unknown>): Promise<void> {
@@ -89,5 +97,26 @@ export class FakeKubeClient implements KubeClient {
 
     private key(namespace: string, kind: string, name: string): string {
         return `${namespace}/${kind}/${name}`;
+    }
+
+    /** Watch handlers registered via watchResources. */
+    private readonly watchers: Array<(phase: "ADDED" | "MODIFIED" | "DELETED", obj: KubeObject) => void> = [];
+
+    /** Emit a watch event to all registered watchers (simulates k8s watch). */
+    private emitWatch(phase: "ADDED" | "MODIFIED" | "DELETED", obj: KubeObject): void {
+        for (const w of this.watchers) w(phase, obj);
+    }
+
+    /**
+     * Register a watch handler. Returns a stop function. The fake emits
+     * ADDED/MODIFIED/DELETED when ensure/delete are called on Hades CRDs,
+     * simulating `kubectl apply`/`kubectl delete` reaching the controller.
+     */
+    async watchResources(handler: (phase: "ADDED" | "MODIFIED" | "DELETED", obj: KubeObject) => void): Promise<() => void> {
+        this.watchers.push(handler);
+        return () => {
+            const i = this.watchers.indexOf(handler);
+            if (i >= 0) this.watchers.splice(i, 1);
+        };
     }
 }

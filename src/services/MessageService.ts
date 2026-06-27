@@ -17,7 +17,7 @@ export class MessageService {
         private readonly brain: BrainService,
     ) {}
 
-    async messageAgent(agentName: string, text: string, options: MessageOptions = {}): Promise<{ run: HadesResource; reply: string }> {
+    async messageAgent(agentName: string, text: string, options: MessageOptions = {}, onToken?: (delta: string) => void): Promise<{ run: HadesResource; reply: string }> {
         const agent = this.agents.resolveAgent(agentName, options.namespace);
         const namespace = namespaceOf(agent);
         if (agent.spec?.lifecycle === "ephemeral" && agent.status?.phase === "completed") {
@@ -42,7 +42,7 @@ export class MessageService {
             status: { phase: "running", startedAt: new Date().toISOString() },
         };
         await this.state.apply(run);
-        const reply = await this.brain.run(agent, session, text);
+        const reply = await this.brain.run(agent, session, text, onToken);
         run.status ??= {};
         run.status.phase = "completed";
         run.status.completedAt = new Date().toISOString();

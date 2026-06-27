@@ -5,6 +5,8 @@ import type { HandsBackend } from "../../ports/HandsBackend.js";
 import type { PolicyPort } from "../../ports/Policy.js";
 import { HadesToolRegistrar, type SyscallEndpoint } from "./HadesToolRegistrar.js";
 import { ConnectorToolRegistrar, connectorsFromEnv, type SecretResolver } from "./ConnectorToolRegistrar.js";
+import path from "node:path";
+import { mkdir } from "node:fs/promises";
 
 export class PiSdkBrainDriver implements BrainDriver {
     readonly mode = "pi-sdk";
@@ -20,7 +22,7 @@ export class PiSdkBrainDriver implements BrainDriver {
         private readonly self?: { subject: { kind: string; name: string; namespace: string }; apiUrl: string },
     ) {}
 
-    async run({ agent, session, prompt }: BrainRunInput): Promise<string> {
+    async run({ agent, session, prompt, onToken }: BrainRunInput): Promise<string> {
         const [{ Type }, pi] = await Promise.all([
             import("@earendil-works/pi-ai"),
             import("@earendil-works/pi-coding-agent"),
@@ -43,17 +45,27 @@ export class PiSdkBrainDriver implements BrainDriver {
             ],
         });
         await resourceLoader.reload();
+        // Persist the pi-SDK session to the home PVC so context survives across
+        // prompts and brain pod restarts. continueRecent reopens the most recent
+        // session file (or creates one on first wake); the SDK's own compaction
+        // handles context-window overflow. This is the "replay context from the
+        // event log" step described in docs/brain-and-session.md.
+        const sessionDir = path.join(homeRoot, ".hades", "sessions", nameOf(session));
+        await mkdir(sessionDir, { recursive: true });
+        const sessionManager = SessionManager.continueRecent(homeRoot, sessionDir);
         const { session: piSession } = await createAgentSession({
             cwd: homeRoot,
             resourceLoader,
             tools: ["hades_read", "hades_write", "hades_exec", ...(this.connectors ? connectorsFromEnv().map((c) => `hades_call_${c.name}`) : []), ...(this.self ? ["hades_install"] : [])],
-            sessionManager: SessionManager.inMemory(homeRoot),
+            sessionManager,
         });
         let text = "";
         type SessionEvent = { type: string; assistantMessageEvent?: { type: string; delta?: string } };
         const unsubscribe = piSession.subscribe((event: SessionEvent) => {
             if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
-                text += event.assistantMessageEvent.delta ?? "";
+                const delta = event.assistantMessageEvent.delta ?? "";
+                text += delta;
+                onToken?.(delta);
             }
         });
         try {

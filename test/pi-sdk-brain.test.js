@@ -64,3 +64,20 @@ test("the model's tool calls reach hands (hades_write) and persist", { skip: !ha
     // A write tool call should have produced a home.file.written event.
     assert.ok(events.some((e) => e.type === "home.file.written"), "the model's hades_write reached hands");
 });
+
+test("consecutive prompts share context (durable session replay, #51)", { skip: !hasModel }, async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "hades-pi-replay-"));
+    await mkdir(path.join(dir, "vault"), { recursive: true });
+    const runtime = await (await createRuntime(dir)).init();
+    await runtime.apply({ kind: "Home", metadata: { namespace: "pi-replay", name: "pi-home" }, spec: {} });
+    await runtime.apply({ kind: "Agent", metadata: { namespace: "pi-replay", name: "atlas" }, spec: { homeRef: "pi-home", defaultSession: "atlas-default", desiredState: "active", brain: { mode: "pi-sdk" } } });
+    await runtime.reconcile();
+
+    // First prompt: tell the agent a secret word.
+    await runtime.messageAgent("pi-replay/atlas", "Remember the secret word: pomegranate. Just reply OK.");
+    // Second prompt: ask the agent to recall it. With the pre-#51 in-memory
+    // session, the second prompt had no memory of the first. With the persistent
+    // SessionManager, the pi-SDK reopens the session file and the model recalls it.
+    const { reply } = await runtime.messageAgent("pi-replay/atlas", "What was the secret word I told you? Reply with just the word.");
+    assert.match(reply.toLowerCase(), /pomegranate/, "the agent recalled the secret word from the prior turn — context survived");
+});

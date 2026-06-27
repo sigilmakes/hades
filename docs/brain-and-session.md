@@ -16,7 +16,7 @@ flowchart LR
     end
     BRAIN -->|append events| EVENTS
     EVENTS --- SESSION
-    BRAIN -->|wake: replay context| EVENTS
+    BRAIN -->|wake: reopen session file| SESSION
 ```
 
 A brain pod embeds a pi SDK `AgentSession` directly. It does **not** contain a
@@ -50,21 +50,31 @@ the event store respectively.
 sequenceDiagram
     participant K as Kernel
     participant B as Brain pod
-    participant E as EventStore
+    participant S as Session file (PVC)
+    participant E as EventStore (audit)
     participant H as Hands pod
     K->>B: POST /run { agent, session, prompt }
-    B->>E: list(session) — replay context
-    E-->>B: recent events
+    B->>S: continueRecent(cwd, sessionDir) — reopen pi-SDK session
+    S-->>B: prior conversation context
     B->>H: MCP tools/call (hades_read/write/exec)
     H-->>B: tool result
-    B->>E: append brain.woke / tool.* / brain.sleeping
+    B->>S: append turn (durable session file)
+    B->>E: append brain.woke / tool.* / brain.model.completed
     B-->>K: SSE { done, reply }
 ```
 
 A message, schedule, or run arrives → the kernel ensures the agent is active →
-the brain pod starts with `HADES_SESSION_ID` → the brain replays context from
-the event log → it calls the model → tool calls route to the hands pod over MCP
-→ events are appended → the brain sleeps.
+the brain pod starts with `HADES_SESSION_ID` → the brain opens its pi-SDK
+session file from `~/.hades/sessions/<session>/` on the home PVC
+(`SessionManager.continueRecent`) → prior conversation context is replayed into
+the model → tool calls route to the hands pod over MCP → the turn is appended to
+both the pi-SDK session file (conversation) and the EventStore (kernel audit) →
+the brain sleeps.
+
+The pi-SDK session file **is** the conversation context; the EventStore is the
+kernel's audit log of what happened (events, tool calls, state transitions).
+The SDK's own compaction handles context-window overflow; Hades owns durability
+(the session file persists on the PVC across brain pod restarts).
 
 ## Sleep flow
 
