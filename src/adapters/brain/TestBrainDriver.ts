@@ -5,6 +5,7 @@ import type { HandsBackend } from "../../ports/HandsBackend.js";
 import type { ScheduleService } from "../../services/ScheduleService.js";
 
 export type SpawnCallback = (subject: { kind: "Agent"; name: string; namespace: string }, spec: Record<string, any>) => Promise<{ agent: HadesResource; reply: string }>;
+export type MessageCallback = (agentName: string, text: string, options: { namespace?: string }) => Promise<{ reply: string }>;
 
 export class TestBrainDriver implements BrainDriver {
     readonly mode = "test";
@@ -14,6 +15,7 @@ export class TestBrainDriver implements BrainDriver {
         private readonly handsFor: (agent: HadesResource, session: HadesResource) => HandsBackend,
         private readonly schedules: ScheduleService,
         private readonly spawn?: SpawnCallback,
+        private readonly message?: MessageCallback,
     ) {}
 
     async run({ agent, session, prompt }: BrainRunInput): Promise<string> {
@@ -38,6 +40,8 @@ export class TestBrainDriver implements BrainDriver {
                 reply = await this.createScheduleFromDirective(agent, session, trimmed);
             } else if (trimmed.startsWith("!spawn ")) {
                 reply = await this.spawnFromDirective(agent, trimmed);
+            } else if (trimmed.startsWith("!message ")) {
+                reply = await this.messageFromDirective(agent, trimmed);
             } else if (trimmed.startsWith("!")) {
                 throw new Error(`Unsupported test brain directive: ${trimmed.split(/\s+/, 1)[0]}`);
             } else {
@@ -67,13 +71,25 @@ export class TestBrainDriver implements BrainDriver {
 
     private async spawnFromDirective(agent: HadesResource, directive: string): Promise<string> {
         if (!this.spawn) throw new Error("spawn is not configured for this brain");
-        const match = directive.match(/^!spawn\s+(\S+)\s+([\s\S]+)$/);
-        if (!match) throw new Error("spawn directive format: !spawn <name> <prompt>");
-        const [, name, prompt] = match;
+        // !spawn <name> [resident] <prompt>
+        const match = directive.match(/^!spawn\s+(\S+)(?:\s+(resident))?\s+([\s\S]+)$/);
+        if (!match) throw new Error("spawn directive format: !spawn <name> [resident] <prompt>");
+        const [, name, resident, prompt] = match;
+        const lifecycle = resident === "resident" ? "resident" : "ephemeral";
         const result = await this.spawn(
             { kind: "Agent", name: nameOf(agent), namespace: namespaceOf(agent) },
-            { name, prompt },
+            { name, prompt, lifecycle },
         );
-        return `spawned ${name}: ${result.reply}`;
+        return `spawned ${name} (${lifecycle}): ${result.reply}`;
+    }
+
+    private async messageFromDirective(agent: HadesResource, directive: string): Promise<string> {
+        if (!this.message) throw new Error("message is not configured for this brain");
+        // !message <agent-name> <text>
+        const match = directive.match(/^!message\s+(\S+)\s+([\s\S]+)$/);
+        if (!match) throw new Error("message directive format: !message <agent-name> <text>");
+        const [, targetName, text] = match;
+        const result = await this.message(targetName, text, { namespace: namespaceOf(agent) });
+        return `messaged ${targetName}: ${result.reply}`;
     }
 }
